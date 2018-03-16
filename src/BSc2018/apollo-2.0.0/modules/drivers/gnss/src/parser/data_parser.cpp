@@ -68,6 +68,8 @@ Parser *create_parser(config::Stream::Format format,
   switch (format) {
     case config::Stream::NOVATEL_BINARY:
       return Parser::create_novatel();
+    case config::Stream::SBP_BINARY:
+      return Parser::create_sbp();
 
     default:
       return nullptr;

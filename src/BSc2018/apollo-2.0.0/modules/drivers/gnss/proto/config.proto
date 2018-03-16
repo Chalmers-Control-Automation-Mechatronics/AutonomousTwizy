@@ -14,6 +14,8 @@ message Stream {
 
     UBLOX_TEXT = 20;
     UBLOX_BINARY = 21;
+
+    SBP_BINARY = 31;
   }
   optional Format format = 1;
 
@@ -61,6 +63,9 @@ message NovatelConfig {
 message UbloxConfig {
 }
 
+message SBPConfig {
+}
+
 message Config {
   // The driver reads data from this port. This port should always be provided.
   optional Stream data = 1;
@@ -84,6 +89,7 @@ message Config {
   oneof device_config {
     NovatelConfig novatel_config = 7;
     UbloxConfig ublox_config = 8;
+    SBPConfig sbp_config = 10;
   }
 
   enum RtkSolutionType {

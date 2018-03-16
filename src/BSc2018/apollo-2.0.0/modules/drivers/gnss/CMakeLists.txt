@@ -51,6 +51,8 @@ set(LOCALIZATION_IMU_PB_SRCS "${CMAKE_CURRENT_SOURCE_DIR}/../../../modules/local
 
 FILE(GLOB GNSS_PROTO_SRCS "${CMAKE_CURRENT_SOURCE_DIR}/proto/*.pb.cc")
 
+add_library(sbp third_party/sbp.c third_party/edc.c)
+
 add_library(rtcm third_party/rtcm3.c third_party/rtcm.c third_party/rtkcmn.c third_party/novatel.c third_party/rcvraw.c)
 target_link_libraries(rtcm m)
 
@@ -60,9 +62,9 @@ target_link_libraries(utils ${catkin_LIBRARIES} ${PROTOBUF_LIBRARIES})
 add_library(stream_nodelet src/stream/stream_nodelet.cpp src/stream/raw_stream.cpp src/impl/stream/serial_stream.cpp src/impl/stream/tcp_stream.cpp src/impl/stream/udp_stream.cpp src/impl/stream/ntrip_stream.cpp)
 target_link_libraries(stream_nodelet utils ${catkin_LIBRARIES} ${PROTOBUF_LIBRARIES})
 
-add_library(parser_nodelet src/parser/parser_nodelet.cpp src/parser/data_parser.cpp src/impl/parser/novatel/novatel_parser.cpp)
-add_dependencies(parser_nodelet novatel_msgs_generate_messages_cpp rtcm)
-target_link_libraries(parser_nodelet rtcm utils ${catkin_LIBRARIES} ${PROTOBUF_LIBRARIES} proj)
+add_library(parser_nodelet src/parser/parser_nodelet.cpp src/parser/data_parser.cpp src/impl/parser/sbp/sbp_parser.cpp)
+add_dependencies(parser_nodelet novatel_msgs_generate_messages_cpp rtcm sbp)
+target_link_libraries(parser_nodelet sbp rtcm utils ${catkin_LIBRARIES} ${PROTOBUF_LIBRARIES} proj)
 
 add_library(rtcm_parser_nodelet src/parser/rtcm_parser_nodelet.cpp src/parser/rtcm_parser.cpp src/impl/parser/rtcm/rtcm3_parser.cpp)
 add_dependencies(rtcm_parser_nodelet novatel_msgs_generate_messages_cpp rtcm)
@@ -71,14 +73,14 @@ target_link_libraries(rtcm_parser_nodelet rtcm utils ${catkin_LIBRARIES} ${PROTO
 add_library(tf_broadcaster_nodelet src/tf/tf_broadcaster_nodelet.cpp src/tf/tf_broadcaster.cpp)
 target_link_libraries(tf_broadcaster_nodelet utils ${catkin_LIBRARIES} ${PROTOBUF_LIBRARIES})
 
-add_executable(parser_cli tests/parser_cli.cpp src/impl/parser/novatel/novatel_parser.cpp)
+add_executable(parser_cli tests/parser_cli.cpp src/impl/parser/sbp/sbp_parser.cpp)
 target_link_libraries(parser_cli rtcm utils ${catkin_LIBRARIES} ${PROTOBUF_LIBRARIES})
 
 add_executable(test_monitor tests/test_monitor.cpp)
 target_link_libraries(test_monitor utils ${catkin_LIBRARIES} ${PROTOBUF_LIBRARIES})
 
 install(
-    TARGETS stream_nodelet parser_nodelet rtcm_parser_nodelet tf_broadcaster_nodelet utils rtcm
+    TARGETS stream_nodelet parser_nodelet rtcm_parser_nodelet tf_broadcaster_nodelet utils rtcm sbp
     ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
     LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
     RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}

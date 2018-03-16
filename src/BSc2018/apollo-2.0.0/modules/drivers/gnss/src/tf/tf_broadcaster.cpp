@@ -24,7 +24,7 @@ void TFBroadcaster::init() {
   _nh.param("odometry_topic", _odometry_topic,
             std::string("/apollo/sensor/gnss/odometry"));
   _nh.param("frame_id", _frame_id, std::string("world"));
-  _nh.param("child_frame_id", _child_frame_id, std::string("novatel"));
+  _nh.param("child_frame_id", _child_frame_id, std::string("sbp"));
 
   _odometry_sub = _nh.subscribe(_odometry_topic, 256,
                                 &TFBroadcaster::odometry_callback, this);
