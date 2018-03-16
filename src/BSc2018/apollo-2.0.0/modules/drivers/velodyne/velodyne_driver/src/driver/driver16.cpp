@@ -26,7 +26,9 @@ namespace apollo {
 namespace drivers {
 namespace velodyne {
 
-Velodyne16Driver::Velodyne16Driver(Config config) : config_(config) {}
+Velodyne16Driver::Velodyne16Driver(Config config) {
+  config_ = config;
+}
 
 void Velodyne16Driver::init(ros::NodeHandle &node) {
   double packet_rate = 754;                 // packet frequency (Hz)
@@ -61,13 +63,14 @@ bool Velodyne16Driver::poll(void) {
       new velodyne_msgs::VelodyneScanUnified);
 
   if (basetime_ == 0) {
-    usleep(100);  // waiting for positioning data
-    return true;
+    //usleep(100);  // waiting for positioning data
+    //return true;
   }
 
   int poll_result = poll_standard(scan);
 
   if (poll_result == SOCKET_TIMEOUT || poll_result == RECIEVE_FAIL) {
+    ROS_INFO_STREAM("socket timeout or receive fail");
     return true;  // poll again
   }
 
@@ -75,6 +78,7 @@ bool Velodyne16Driver::poll(void) {
     ROS_INFO_STREAM("Get a empty scan from port: " << config_.firing_data_port);
     return true;
   }
+  //ROS_INFO_STREAM("tjena det borde funka");
 
   // publish message using time of last packet read
   ROS_DEBUG("Publishing a full Velodyne scan.");

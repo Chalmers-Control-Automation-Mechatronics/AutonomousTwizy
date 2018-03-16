@@ -37,4 +37,4 @@ if  pidof -o %PPID -x "roscore" > /dev/null; then
 
 fi
 
-roslaunch velodyne start_velodyne.launch
+roslaunch velodyne start_velodyne_16.launch #emil ändrade till _16
