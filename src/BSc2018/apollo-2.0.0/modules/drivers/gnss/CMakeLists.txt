@@ -74,7 +74,7 @@ add_library(tf_broadcaster_nodelet src/tf/tf_broadcaster_nodelet.cpp src/tf/tf_b
 target_link_libraries(tf_broadcaster_nodelet utils ${catkin_LIBRARIES} ${PROTOBUF_LIBRARIES})
 
 add_executable(parser_cli tests/parser_cli.cpp src/impl/parser/sbp/sbp_parser.cpp)
-target_link_libraries(parser_cli rtcm utils ${catkin_LIBRARIES} ${PROTOBUF_LIBRARIES})
+target_link_libraries(parser_cli sbp rtcm utils ${catkin_LIBRARIES} ${PROTOBUF_LIBRARIES})
 
 add_executable(test_monitor tests/test_monitor.cpp)
 target_link_libraries(test_monitor utils ${catkin_LIBRARIES} ${PROTOBUF_LIBRARIES})

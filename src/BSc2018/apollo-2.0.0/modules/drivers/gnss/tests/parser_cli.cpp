@@ -39,7 +39,7 @@ void Parse(const char* filename, char parser_type) {
   std::unique_ptr<Parser> p;
   switch (parser_type) {
     case 'n':
-      p.reset(Parser::create_novatel());
+      p.reset(Parser::create_sbp());
       break;
     default:
       std::cout << "Log type should be either 'n' or 'u'" << std::endl;
