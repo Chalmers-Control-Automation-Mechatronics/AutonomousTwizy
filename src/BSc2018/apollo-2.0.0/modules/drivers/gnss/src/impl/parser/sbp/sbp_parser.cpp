@@ -55,6 +55,8 @@ void heartbeat_callback(u16 sender_id, u8 len, u8 msg[], void *context){
 	ROS_WARN_STREAM("Antenna Present " << ((flags & 0x80000000) > 0 ? "yes" : "no"));
 }
 
+char _buffer[BUFFER_SIZE];
+u32 bytes_read;
 
 }
 
@@ -80,8 +82,6 @@ private:
 
 	double _imu_measurement_time_previous = -1.0;
 
-	//std::vector<uint8_t> _buffer;
-
 	sbp_state_t s;
 
 	size_t _total_length = 0;
@@ -95,7 +95,6 @@ Parser* Parser::create_sbp() {
 	return new SBPParser();
 }
 
-char _buffer[BUFFER_SIZE];
 SBPParser::SBPParser() {
 	_ins.mutable_position_covariance()->Resize(9, FLOAT_NAN);
 	_ins.mutable_euler_angles_covariance()->Resize(9, FLOAT_NAN);
@@ -103,8 +102,6 @@ SBPParser::SBPParser() {
 
 	sbp_state_init(&s);
 	sbp_register_callback(&s, SBP_MSG_HEARTBEAT, &heartbeat_callback, NULL, &heartbeat_callback_node);
-
-	ROS_WARN_STREAM("TJENA");
 }
 
 char hexstr[4];
@@ -114,19 +111,15 @@ char* int_to_hex( uint8_t i )
 	return hexstr;
 }
 
-u32 bytes_read;
-
 u32 piksi_port_read(u8 *buff, u32 n, void *context){
 	(void)context;
 
-	//ROS_WARN_STREAM("sbp_process: Requesting " << n << " bytes");
-
-	if((bytes_read + n) > BUFFER_SIZE)
-	{
-		ROS_WARN_STREAM("sbp_process: requested more bytes than BUFFER_SIZE!");
+	if((bytes_read + n) > BUFFER_SIZE){
+		ROS_WARN_STREAM("requested more bytes than BUFFER_SIZE!");
 		return 0;
 	}
 
+	// Copy our buffer into SBP's buffer
 	std::memcpy(buff, _buffer + bytes_read, n);
 
 	bytes_read += n;
@@ -136,12 +129,9 @@ u32 piksi_port_read(u8 *buff, u32 n, void *context){
 
 void SBPParser::buffer_to_sbp_process(char* buffer, u32 len){
 	bytes_read = 0;
-
+	// Feed the entire buffer until its fully read
 	while(bytes_read < len){
 		sbp_process(&s, &piksi_port_read);
-		//ROS_WARN_STREAM("Bytes read: " << bytes_read);
-		//ROS_WARN_STREAM("State " << (&s)->state);
-		//ROS_WARN_STREAM("Message Type ")
 	}
 }
 
@@ -153,100 +143,20 @@ Parser::MessageType SBPParser::get_message(MessagePtr& message_ptr) {
 		return MessageType::NONE;
 	}
 
-	//ROS_WARN_STREAM("get_message: " << (_data_end - _data));
-
+	// Copy the message data to a buffer
 	u32 i = 0;
-
-	u8 byte;
 	while(_data < _data_end){
-		byte = *_data;
-
-		//ROS_WARN_STREAM("Byte: " << int_to_hex(byte));
-
-		//_buffer.push_back(byte);
-		_buffer[i] = byte;
-		i++;
-
-		if(byte == 0x55){
-			//ROS_WARN_STREAM("Found preamble");
+		if(i >= BUFFER_SIZE){
+			ROS_WARN_STREAM("Can't hold more data in buffer");
+			break;
 		}
 
-		_data++;
+		_buffer[i++] = *(_data++);
 	}
 
-	//ROS_WARN_STREAM("Filled buffer");
-
+	// Feed the buffer into the SBP library's functions
 	buffer_to_sbp_process(_buffer, i);
 
-
-
-	if(_buffer[0] == 0x55){
-		//ROS_WARN_STREAM("Found preamble");
-	}else{
-		ROS_WARN_STREAM("Could not find preamble");
-	}
-
-/*
-	while (_data < _data_end) {
-		if (_buffer.size() == 0) {  // Looking for SYNC0
-			if (*_data == 0x55) {
-				ROS_WARN_STREAM("Found SBP preamble");
-				_buffer.push_back(*_data);
-			}
-			++_data;
-		} else if (_buffer.size() < 3) {  // Looking for SYNC1
-			_buffer.push_back(*_data++);
-			continue;
-		} else if (_buffer.size() == 3) {  // Looking for SYNC1
-
-
-			_buffer.push_back(*_data++);
-			continue;
-		} else if (_buffer.size() == 2) {  // Looking for SYNC2
-			switch (*_data) {
-				case novatel::SYNC_2_LONG_HEADER:
-					_buffer.push_back(*_data++);
-					_header_length = sizeof(novatel::LongHeader);
-					break;
-				case novatel::SYNC_2_SHORT_HEADER:
-					_buffer.push_back(*_data++);
-					_header_length = sizeof(novatel::ShortHeader);
-					break;
-				default:
-					_buffer.clear();
-			}
-		} else if (_header_length > 0) {  // Working on header.
-			if (_buffer.size() < _header_length) {
-				_buffer.push_back(*_data++);
-			} else {
-				if (_header_length == sizeof(novatel::LongHeader)) {
-					_total_length = _header_length + novatel::CRC_LENGTH +
-													reinterpret_cast<novatel::LongHeader*>(_buffer.data())
-															->message_length;
-				} else if (_header_length == sizeof(novatel::ShortHeader)) {
-					_total_length =
-							_header_length + novatel::CRC_LENGTH +
-							reinterpret_cast<novatel::ShortHeader*>(_buffer.data())
-									->message_length;
-				} else {
-					ROS_ERROR("Incorrect _header_length. Should never reach here.");
-					_buffer.clear();
-				}
-				_header_length = 0;
-			}
-		} else if (_total_length > 0) {
-			if (_buffer.size() < _total_length) {  // Working on body.
-				_buffer.push_back(*_data++);
-				continue;
-			}
-			MessageType type = prepare_message(message_ptr);
-			_buffer.clear();
-			_total_length = 0;
-			if (type != MessageType::NONE) {
-				return type;
-			}
-		}
-	}*/
 	return MessageType::NONE;
 }
 
