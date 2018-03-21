@@ -46,17 +46,9 @@ u16 bytesToUnsignedShort(u8 start, u8 msg[]){
 	return (u16)bytesToSignedShort(start, msg);
 }
 
-void heartbeat_callback(u16 sender_id, u8 len, u8 msg[], void *context){
-	(void) sender_id, (void) len, (void) msg, (void) context;
-
-	ROS_WARN_STREAM("Heartbeat");
-
-	u32 flags = bytesToUnsignedInt(0, msg);
-	ROS_WARN_STREAM("Antenna Present " << ((flags & 0x80000000) > 0 ? "yes" : "no"));
-}
-
 char _buffer[BUFFER_SIZE];
 u32 bytes_read;
+Parser::MessageType current_message;
 
 }
 
@@ -67,8 +59,9 @@ public:
 	virtual MessageType get_message(MessagePtr& message_ptr);
 
 private:
-	//u32 piksi_port_read(u8 *buff, u32 n, void *context);
 	void buffer_to_sbp_process(char* buffer, u32 len);
+
+	static void heartbeat_callback(u16 sender_id, u8 len, u8 msg[], void *context);
 
 	double _gps_seconds_base = -1.0;
 
@@ -87,8 +80,12 @@ private:
 	size_t _total_length = 0;
 
 	::apollo::drivers::gnss::Gnss _gnss;
+	::apollo::drivers::gnss::GnssBestPose _bestpos;
 	::apollo::drivers::gnss::Imu _imu;
 	::apollo::drivers::gnss::Ins _ins;
+	::apollo::drivers::gnss::InsStat _ins_stat;
+	::apollo::drivers::gnss::GnssEphemeris _gnss_ephemeris;
+	::apollo::drivers::gnss::EpochObservation _gnss_observation;
 };
 
 Parser* Parser::create_sbp() {
@@ -96,12 +93,14 @@ Parser* Parser::create_sbp() {
 }
 
 SBPParser::SBPParser() {
+	current_message = MessageType::NONE;
+
 	_ins.mutable_position_covariance()->Resize(9, FLOAT_NAN);
 	_ins.mutable_euler_angles_covariance()->Resize(9, FLOAT_NAN);
 	_ins.mutable_linear_velocity_covariance()->Resize(9, FLOAT_NAN);
 
 	sbp_state_init(&s);
-	sbp_register_callback(&s, SBP_MSG_HEARTBEAT, &heartbeat_callback, NULL, &heartbeat_callback_node);
+	sbp_register_callback(&s, SBP_MSG_HEARTBEAT, &this->heartbeat_callback, NULL, &heartbeat_callback_node);
 }
 
 char hexstr[4];
@@ -110,6 +109,23 @@ char* int_to_hex( uint8_t i )
 	sprintf(hexstr, "%02x", i);
 	return hexstr;
 }
+
+/*
+Callbacks
+*/
+void SBPParser::heartbeat_callback(u16 sender_id, u8 len, u8 msg[], void *context){
+	(void) sender_id, (void) len, (void) msg, (void) context;
+
+	ROS_WARN_STREAM("Heartbeat");
+
+	u32 flags = bytesToUnsignedInt(0, msg);
+	ROS_WARN_STREAM("Antenna Present " << ((flags & 0x80000000) > 0 ? "yes" : "no"));
+
+	current_message = MessageType::NONE;
+}
+/*
+End of callbacks
+*/
 
 u32 piksi_port_read(u8 *buff, u32 n, void *context){
 	(void)context;
@@ -154,10 +170,12 @@ Parser::MessageType SBPParser::get_message(MessagePtr& message_ptr) {
 		_buffer[i++] = *(_data++);
 	}
 
+	current_message = MessageType::NONE;
+
 	// Feed the buffer into the SBP library's functions
 	buffer_to_sbp_process(_buffer, i);
 
-	return MessageType::NONE;
+	return current_message;
 }
 
 }
