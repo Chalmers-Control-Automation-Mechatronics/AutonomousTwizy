@@ -28,26 +28,32 @@ namespace drivers {
 namespace gnss {
 
 namespace {
+
 constexpr size_t BUFFER_SIZE = 1024;
 constexpr float FLOAT_NAN = std::numeric_limits<float>::quiet_NaN();
 
 static sbp_msg_callbacks_node_t heartbeat_callback_node;
 
+// Functions to convert little endian bytes to nice types
 s32 bytesToSignedInt(u8 start, u8 msg[]){
 	return msg[start] | msg[start + 1] << 8 | msg[start + 2] << 16 | msg[start + 3] << 24;
 }
+
 u32 bytesToUnsignedInt(u8 start, u8 msg[]){
 	return (u32)bytesToSignedInt(start, msg);
 }
+
 s16 bytesToSignedShort(u8 start, u8 msg[]){
 	return msg[start] | msg[start + 1] << 8;
 }
+
 u16 bytesToUnsignedShort(u8 start, u8 msg[]){
 	return (u16)bytesToSignedShort(start, msg);
 }
 
 char _buffer[BUFFER_SIZE];
 u32 bytes_read;
+u32 buffer_data_size;
 Parser::MessageType current_message;
 
 }
@@ -111,7 +117,7 @@ char* int_to_hex( uint8_t i )
 }
 
 /*
-Callbacks
+SBP Callbacks
 */
 void SBPParser::heartbeat_callback(u16 sender_id, u8 len, u8 msg[], void *context){
 	(void) sender_id, (void) len, (void) msg, (void) context;
@@ -130,10 +136,13 @@ End of callbacks
 u32 piksi_port_read(u8 *buff, u32 n, void *context){
 	(void)context;
 
-	if((bytes_read + n) > BUFFER_SIZE){
-		ROS_WARN_STREAM("requested more bytes than BUFFER_SIZE!");
-		return 0;
-	}
+	// SBP library calls this function
+	// buff is the buffer in which it expects data when it's returned
+	// n is the amount of bytes which the library requests
+	// the function should return the amount of bytes read
+
+	// Make sure we don't read more bytes than we have
+	n = std::min(n, buffer_data_size - bytes_read);
 
 	// Copy our buffer into SBP's buffer
 	std::memcpy(buff, _buffer + bytes_read, n);
@@ -145,6 +154,8 @@ u32 piksi_port_read(u8 *buff, u32 n, void *context){
 
 void SBPParser::buffer_to_sbp_process(char* buffer, u32 len){
 	bytes_read = 0;
+	buffer_data_size = len;
+
 	// Feed the entire buffer until its fully read
 	while(bytes_read < len){
 		sbp_process(&s, &piksi_port_read);
@@ -155,25 +166,30 @@ void SBPParser::buffer_to_sbp_process(char* buffer, u32 len){
 // calling another
 // get_message() or update();
 Parser::MessageType SBPParser::get_message(MessagePtr& message_ptr) {
+	//Once we enter this method, _data and _data_end will be populated with pointers
+	//_data points to the beginning of the data (the first byte)
+	//_data_end points to beginning + data size
+	//Thus, to get the data size we can do (_data_end - _data)
+
 	if (_data == nullptr) {
 		return MessageType::NONE;
 	}
 
 	// Copy the message data to a buffer
-	u32 i = 0;
-	while(_data < _data_end){
-		if(i >= BUFFER_SIZE){
-			ROS_WARN_STREAM("Can't hold more data in buffer");
-			break;
-		}
-
-		_buffer[i++] = *(_data++);
+	u32 data_size = (_data_end - _data);
+	if(data_size > BUFFER_SIZE){
+		ROS_WARN_STREAM("Incoming data is too big for buffer! " << data_size << " bytes (Buffer size is " << BUFFER_SIZE << " bytes)");
+		return MessageType::NONE;
 	}
 
+	std::memcpy(_buffer, _data, data_size);
+
+	// Reset current message
+	// The SBP callbacks will set this variable to the appropriate one
 	current_message = MessageType::NONE;
 
 	// Feed the buffer into the SBP library's functions
-	buffer_to_sbp_process(_buffer, i);
+	buffer_to_sbp_process(_buffer, data_size);
 
 	return current_message;
 }
