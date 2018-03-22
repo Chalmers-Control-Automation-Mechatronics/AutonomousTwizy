@@ -31,9 +31,20 @@
 #include <libsbp/system.h>
 #include <libsbp/tracking.h>
 
+#define GEOIDHEIGHT (35.885) // Geoid height for Chalmers Johanneberg, Gothenburg, Sweden
+
 namespace apollo {
 namespace drivers {
 namespace gnss {
+
+enum class SBPFixMode : u8 {
+	INVALID = 0,
+	SPP = 1,
+	DIFF_GNSS = 2,
+	FLOAT_RTK = 3,
+	FIXED_RTK = 4,
+	DEAD_RECKONING = 5
+};
 
 namespace {
 
@@ -47,6 +58,7 @@ static sbp_msg_callbacks_node_t pos_llh_callback_node;
 static sbp_msg_callbacks_node_t orient_euler_callback_node;
 static sbp_msg_callbacks_node_t angular_rate_callback_node;
 static sbp_msg_callbacks_node_t imu_raw_callback_node;
+static sbp_msg_callbacks_node_t vel_ned_callback_node;
 
 // Functions to convert little endian bytes to nice types
 s32 bytesToSignedInt(u8 start, u8 msg[]){
@@ -67,6 +79,30 @@ u16 bytesToUnsignedShort(u8 start, u8 msg[]){
 
 void bytesToDouble(double* out, u8 start, u8 msg[]){
 	std::memcpy(out, msg + start, 8);
+}
+
+// Converts a SBP Fixmode to a Novatel Position/Velocity type
+u32 fix_mode_to_position_type(SBPFixMode fixmode){
+	switch(fixmode){
+		case SBPFixMode::SPP:
+			return 16; // SINGLE
+		case SBPFixMode::FLOAT_RTK:
+			return 32; // L1_FLOAT (not sure if this is correct)
+		case SBPFixMode::FIXED_RTK:
+			return 48; // L1_INT (not sure if this is correct)
+		case SBPFixMode::INVALID:
+		default:
+			return 0;
+	}
+}
+
+u32 extract_flags(u32 flag_integer, u32 start, u32 stop){
+	u32 a = (1 << start) - 1;
+	u32 b = ((1 << stop) - 1) | (1 << stop);
+	a = ~a;
+	u32 mask = a & b;
+
+	return (flag_integer & mask) >> start;
 }
 
 u16 gpsweek = 0;
@@ -99,8 +135,6 @@ Parser::MessageType current_message;
 class SBPParser : public Parser {
 public:
 	SBPParser();
-
-	double sven = 3;
 
 	virtual MessageType get_message(MessagePtr& message_ptr);
 
@@ -178,16 +212,92 @@ void pos_llh_callback(u16 sender_id, u8 len, u8 msg[], void *context){
 	assert(len >= sizeof(msg_pos_llh_t));
 
 	msg_pos_llh_t* data = (msg_pos_llh_t*) msg;
-/*
-	ROS_WARN_STREAM("lat: " << data->lat);
-	ROS_WARN_STREAM("lon: " << data->lon);
-	ROS_WARN_STREAM("height: " << data->height);
 
-	ROS_WARN_STREAM("n_sats: " << data->n_sats);
-	ROS_WARN_STREAM("flags: " << int_to_hex(data->flags));
-*/
+	u8 ins_status = extract_flags(data->flags, 3, 4);
+	if(ins_status == 1){
+		ROS_WARN_STREAM("POS LLH used INS solution!");
+	}
 
-	//current_message = Parser::MessageType::GNSS;
+	_gnss.set_measurement_time(getGPSTime(data->tow));
+	_gnss.mutable_header()->set_timestamp_sec(ros::Time::now().toSec());
+	_bestpos.set_measurement_time(getGPSTime(data->tow));
+	_bestpos.mutable_header()->set_timestamp_sec(ros::Time::now().toSec());
+
+	double wgs84_height = data->height;
+	float undulation = GEOIDHEIGHT;
+	double msl_height = wgs84_height - undulation;
+
+	_gnss.mutable_position()->set_lat(data->lat);
+	_gnss.mutable_position()->set_lon(data->lon);
+	_gnss.mutable_position()->set_height(wgs84_height);
+	_gnss.mutable_position_std_dev()->set_x(data->h_accuracy * 1e-3); // these accuracies may be in the wrong coordinate system
+	_gnss.mutable_position_std_dev()->set_y(data->h_accuracy * 1e-3);
+	_gnss.mutable_position_std_dev()->set_z(data->v_accuracy * 1e-3);
+
+	_gnss.set_num_sats(data->n_sats);
+
+	SBPFixMode fixmode = static_cast<SBPFixMode>(data->flags & 0x7);
+
+	_gnss.set_solution_status(0); // Used by Novatel to tell INS status
+	_gnss.set_position_type(fix_mode_to_position_type(fixmode)); // Used by Novatel to tell Solution Status
+
+	switch(fixmode){
+		case SBPFixMode::SPP:
+			_gnss.set_type(apollo::drivers::gnss::Gnss::SINGLE);
+			break;
+		case SBPFixMode::DIFF_GNSS:
+			ROS_WARN_STREAM("SBP uses DGNSS but apollo no support :(");
+			break;
+		case SBPFixMode::FLOAT_RTK:
+			_gnss.set_type(apollo::drivers::gnss::Gnss::RTK_FLOAT);
+			break;
+		case SBPFixMode::FIXED_RTK:
+			_gnss.set_type(apollo::drivers::gnss::Gnss::RTK_INTEGER);
+			break;
+		case SBPFixMode::INVALID:
+		default:
+			_gnss.set_type(apollo::drivers::gnss::Gnss::INVALID);
+	}
+
+	_bestpos.set_latitude(data->lat);
+	_bestpos.set_longitude(data->lon);
+	_bestpos.set_height_msl(msl_height);
+	_bestpos.set_undulation(undulation);
+	_bestpos.set_datum_id(apollo::drivers::gnss::DatumId::WGS84);
+	_bestpos.set_latitude_std_dev(data->h_accuracy * 1e-3);
+	_bestpos.set_longitude_std_dev(data->h_accuracy * 1e-3);
+	_bestpos.set_height_std_dev(data->v_accuracy * 1e-3);
+	_bestpos.set_num_sats_in_solution(data->n_sats);
+
+	current_message = Parser::MessageType::GNSS;
+}
+
+void vel_ned_callback(u16 sender_id, u8 len, u8 msg[], void *context){
+	(void) sender_id, (void) len, (void) msg, (void) context;
+
+	assert(len >= sizeof(msg_vel_ned_t));
+
+	msg_vel_ned_t* data = (msg_vel_ned_t*) msg;
+
+	u8 ins_status = extract_flags(data->flags, 3, 4);
+	if(ins_status == 1){
+		ROS_WARN_STREAM("VEL NED used INS solution!");
+	}
+
+	_gnss.set_measurement_time(getGPSTime(data->tow));
+	_gnss.mutable_header()->set_timestamp_sec(ros::Time::now().toSec());
+
+	_gnss.mutable_linear_velocity()->set_x(data->e * 1e-3);
+	_gnss.mutable_linear_velocity()->set_y(data->n * 1e-3);
+	_gnss.mutable_linear_velocity()->set_z(-data->d * 1e-3);
+
+	_gnss.mutable_linear_velocity_std_dev()->set_x(data->h_accuracy * 1e-3); // these accuracies may be in the wrong coordinate system
+	_gnss.mutable_linear_velocity_std_dev()->set_y(data->h_accuracy * 1e-3);
+	_gnss.mutable_linear_velocity_std_dev()->set_z(data->v_accuracy * 1e-3);
+
+	_gnss.set_num_sats(data->n_sats);
+
+	current_message = Parser::MessageType::GNSS;
 }
 
 void orient_euler_callback(u16 sender_id, u8 len, u8 msg[], void *context){
@@ -195,9 +305,7 @@ void orient_euler_callback(u16 sender_id, u8 len, u8 msg[], void *context){
 
 	msg_orient_euler_t* data = (msg_orient_euler_t*) msg;
 
-	ROS_WARN_STREAM("Roll: " << data->roll);
-	ROS_WARN_STREAM("Pitch: " << data->pitch);
-	ROS_WARN_STREAM("Yaw: " << data->yaw);
+	ROS_WARN_STREAM("It's sending INS data!!");
 }
 
 void angular_rate_callback(u16 sender_id, u8 len, u8 msg[], void *context){
@@ -205,9 +313,7 @@ void angular_rate_callback(u16 sender_id, u8 len, u8 msg[], void *context){
 
 	msg_angular_rate_t* data = (msg_angular_rate_t*) msg;
 
-	ROS_WARN_STREAM("X: " << data->x);
-	ROS_WARN_STREAM("Y: " << data->y);
-	ROS_WARN_STREAM("Z: " << data->z);
+	ROS_WARN_STREAM("It's sending INS data!!");
 }
 
 void imu_raw_callback(u16 sender_id, u8 len, u8 msg[], void *context){
@@ -241,6 +347,7 @@ SBPParser::SBPParser() {
 	sbp_register_callback(&s, SBP_MSG_ORIENT_EULER, &orient_euler_callback, NULL, &orient_euler_callback_node);
 	sbp_register_callback(&s, SBP_MSG_ANGULAR_RATE, &angular_rate_callback, NULL, &angular_rate_callback_node);
 	sbp_register_callback(&s, SBP_MSG_IMU_RAW, &imu_raw_callback, NULL, &imu_raw_callback_node);
+	sbp_register_callback(&s, SBP_MSG_VEL_NED, &vel_ned_callback, NULL, &vel_ned_callback_node);
 }
 
 u32 piksi_port_read(u8 *buff, u32 n, void *context){
@@ -306,6 +413,14 @@ Parser::MessageType SBPParser::get_message(MessagePtr& message_ptr) {
 
 	// Feed the buffer into the SBP library's functions
 	buffer_to_sbp_process(_buffer, data_size);
+
+	switch(current_message){
+		case MessageType::GNSS:
+			message_ptr = &_gnss;
+			break;
+		default:
+			break;
+	}
 
 	//ROS_WARN_STREAM("heeej!");
 
