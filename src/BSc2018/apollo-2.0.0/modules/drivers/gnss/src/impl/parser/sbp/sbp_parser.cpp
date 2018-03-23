@@ -55,6 +55,7 @@ constexpr float FLOAT_NAN = std::numeric_limits<float>::quiet_NaN();
 static sbp_msg_callbacks_node_t heartbeat_callback_node;
 static sbp_msg_callbacks_node_t gps_time_callback_node;
 static sbp_msg_callbacks_node_t pos_llh_callback_node;
+static sbp_msg_callbacks_node_t pos_llh_cov_callback_node;
 static sbp_msg_callbacks_node_t orient_euler_callback_node;
 static sbp_msg_callbacks_node_t angular_rate_callback_node;
 static sbp_msg_callbacks_node_t imu_raw_callback_node;
@@ -140,27 +141,7 @@ public:
 
 	void buffer_to_sbp_process(char* buffer, u32 len);
 
-	//u32 piksi_port_read(u8 *buff, u32 n, void *context);
-
-	//static void heartbeat_callback(u16 sender_id, u8 len, u8 msg[], void *context);
-	//static void gps_time_callback(u16 sender_id, u8 len, u8 msg[], void *context);
-	//static void pos_llh_callback(u16 sender_id, u8 len, u8 msg[], void *context);
-
-	double _gps_seconds_base = -1.0;
-
-	double _gyro_scale = 0.0;
-
-	double _accel_scale = 0.0;
-
-	float _imu_measurement_span = 0.0;
-
-	int _imu_frame_mapping = 5;
-
-	double _imu_measurement_time_previous = -1.0;
-
 	sbp_state_t s;
-
-	size_t _total_length = 0;
 };
 
 Parser* Parser::create_sbp() {
@@ -179,9 +160,12 @@ void heartbeat_callback(u16 sender_id, u8 len, u8 msg[], void *context){
 
 	ROS_WARN_STREAM("GPS Heartbeat (Antenna " << ((flags & 0x80000000) > 0 ? "present" : "not present") << ")");
 
-	current_message = Parser::MessageType::NONE;
+
 }
 
+double lat;
+double lon;
+double height;
 void gps_time_callback(u16 sender_id, u8 len, u8 msg[], void *context){
 	(void) sender_id, (void) len, (void) msg, (void) context;
 
@@ -195,7 +179,33 @@ void gps_time_callback(u16 sender_id, u8 len, u8 msg[], void *context){
 
 	double time = getGPSTime(time_of_week, time_of_week_offset);
 
-	_gnss.set_measurement_time(time);
+	// testing INS here
+	if(_ins.measurement_time() == time)
+		return;
+	_ins.set_measurement_time(time);
+
+	_ins.set_type(apollo::drivers::gnss::Ins::GOOD);
+
+	_ins.mutable_position()->set_lat(lat);
+	_ins.mutable_position()->set_lon(lon);
+	_ins.mutable_position()->set_height(height);
+
+	_ins.mutable_euler_angles()->set_x(0);
+	_ins.mutable_euler_angles()->set_y(0);
+	_ins.mutable_euler_angles()->set_z(0);
+
+	for (int i = 0; i < 9; i += 4) {
+		_ins.set_position_covariance(i, 1);
+		_ins.set_euler_angles_covariance(i, 1);
+		_ins.set_linear_velocity_covariance(i, 1);
+	}
+
+	current_message = Parser::MessageType::INS;
+
+
+	//ROS_WARN_STREAM("GPS Time: " << time_of_week);
+
+	//_gnss.set_measurement_time(time);
 }
 
 char hexstr[4];
@@ -205,31 +215,28 @@ char* int_to_hex( uint8_t i )
 	return hexstr;
 }
 
-
-void pos_llh_callback(u16 sender_id, u8 len, u8 msg[], void *context){
-	(void) sender_id, (void) len, (void) msg, (void) context;
-
-	assert(len >= sizeof(msg_pos_llh_t));
-
-	msg_pos_llh_t* data = (msg_pos_llh_t*) msg;
+bool pos_llh_gnss(msg_pos_llh_t* data){
+	double gpstime = getGPSTime(data->tow);
+	if(_gnss.measurement_time() == gpstime)
+		return false;
 
 	u8 ins_status = extract_flags(data->flags, 3, 4);
 	if(ins_status == 1){
 		ROS_WARN_STREAM("POS LLH used INS solution!");
 	}
 
-	_gnss.set_measurement_time(getGPSTime(data->tow));
-	_gnss.mutable_header()->set_timestamp_sec(ros::Time::now().toSec());
-	_bestpos.set_measurement_time(getGPSTime(data->tow));
-	_bestpos.mutable_header()->set_timestamp_sec(ros::Time::now().toSec());
+	ROS_WARN_STREAM("POSLLH " << data->tow << " " << std::fixed << gpstime);
 
-	double wgs84_height = data->height;
-	float undulation = GEOIDHEIGHT;
-	double msl_height = wgs84_height - undulation;
+	_gnss.set_measurement_time(gpstime);
+	_gnss.mutable_header()->set_timestamp_sec(ros::Time::now().toSec());
+
+	lat = data->lat;
+	lon = data->lon;
+	height = data->height;
 
 	_gnss.mutable_position()->set_lat(data->lat);
 	_gnss.mutable_position()->set_lon(data->lon);
-	_gnss.mutable_position()->set_height(wgs84_height);
+	_gnss.mutable_position()->set_height(data->height);
 	_gnss.mutable_position_std_dev()->set_x(data->h_accuracy * 1e-3); // these accuracies may be in the wrong coordinate system
 	_gnss.mutable_position_std_dev()->set_y(data->h_accuracy * 1e-3);
 	_gnss.mutable_position_std_dev()->set_z(data->v_accuracy * 1e-3);
@@ -259,6 +266,21 @@ void pos_llh_callback(u16 sender_id, u8 len, u8 msg[], void *context){
 			_gnss.set_type(apollo::drivers::gnss::Gnss::INVALID);
 	}
 
+	return true;
+}
+
+bool pos_llh_bestpos(msg_pos_llh_t* data){
+	double gpstime = getGPSTime(data->tow);
+	if(_bestpos.measurement_time() == gpstime)
+		return false;
+
+	_bestpos.set_measurement_time(getGPSTime(data->tow));
+	_bestpos.mutable_header()->set_timestamp_sec(ros::Time::now().toSec());
+
+	double wgs84_height = data->height;
+	float undulation = GEOIDHEIGHT;
+	double msl_height = wgs84_height - undulation;
+
 	_bestpos.set_latitude(data->lat);
 	_bestpos.set_longitude(data->lon);
 	_bestpos.set_height_msl(msl_height);
@@ -269,7 +291,25 @@ void pos_llh_callback(u16 sender_id, u8 len, u8 msg[], void *context){
 	_bestpos.set_height_std_dev(data->v_accuracy * 1e-3);
 	_bestpos.set_num_sats_in_solution(data->n_sats);
 
-	current_message = Parser::MessageType::GNSS;
+	return true;
+}
+
+void pos_llh_callback(u16 sender_id, u8 len, u8 msg[], void *context){
+	(void) sender_id, (void) len, (void) msg, (void) context;
+
+	assert(len >= sizeof(msg_pos_llh_t));
+
+	msg_pos_llh_t* data = (msg_pos_llh_t*) msg;
+
+	if(pos_llh_gnss(data)){
+		current_message = Parser::MessageType::GNSS;
+		return;
+	}
+
+	if(pos_llh_bestpos(data)){
+		current_message = Parser::MessageType::BEST_GNSS_POS;
+		return;
+	}
 }
 
 void vel_ned_callback(u16 sender_id, u8 len, u8 msg[], void *context){
@@ -278,6 +318,10 @@ void vel_ned_callback(u16 sender_id, u8 len, u8 msg[], void *context){
 	assert(len >= sizeof(msg_vel_ned_t));
 
 	msg_vel_ned_t* data = (msg_vel_ned_t*) msg;
+
+	double gpstime = getGPSTime(data->tow);
+	if(_gnss.measurement_time() == gpstime)
+		return;
 
 	u8 ins_status = extract_flags(data->flags, 3, 4);
 	if(ins_status == 1){
@@ -321,16 +365,31 @@ void imu_raw_callback(u16 sender_id, u8 len, u8 msg[], void *context){
 
 	msg_imu_raw_t* data = (msg_imu_raw_t*) msg;
 
-	ROS_WARN_STREAM("AccX: " << data->acc_x);
-	ROS_WARN_STREAM("AccY: " << data->acc_y);
-	ROS_WARN_STREAM("AccZ: " << data->acc_z);
-	ROS_WARN_STREAM("GyroX: " << data->gyr_x);
-	ROS_WARN_STREAM("GyroY: " << data->gyr_y);
-	ROS_WARN_STREAM("GyroZ: " << data->gyr_z);
+	double gpstime = getGPSTime(data->tow);
+	if(_imu.measurement_time() == gpstime)
+		return;
+	_imu.set_measurement_time(gpstime);
+	_imu.mutable_header()->set_timestamp_sec(ros::Time::now().toSec());
+
+	ROS_WARN_STREAM("tjena " << -(data->acc_x * 1e-3));
+
+	_imu.mutable_linear_acceleration()->set_x(-data->acc_x * 1e-3);
+	_imu.mutable_linear_acceleration()->set_y(data->acc_y * 1e-3);
+	_imu.mutable_linear_acceleration()->set_z(data->acc_z * 1e-3);
+
+	_imu.mutable_angular_velocity()->set_x(-data->gyr_x * 1e-3);
+	_imu.mutable_angular_velocity()->set_y(data->gyr_y * 1e-3);
+	_imu.mutable_angular_velocity()->set_z(data->gyr_z * 1e-3);
+
+	current_message = Parser::MessageType::IMU;
 }
 /*
 End of callbacks
 */
+
+void emptycallback(u16 sender_id, u8 len, u8 msg[], void *context){
+	(void) sender_id, (void) len, (void) msg, (void) context;
+}
 
 SBPParser::SBPParser() {
 	current_message = MessageType::NONE;
@@ -417,6 +476,15 @@ Parser::MessageType SBPParser::get_message(MessagePtr& message_ptr) {
 	switch(current_message){
 		case MessageType::GNSS:
 			message_ptr = &_gnss;
+			break;
+		case MessageType::BEST_GNSS_POS:
+			message_ptr = &_bestpos;
+			break;
+		case MessageType::IMU:
+			message_ptr = &_imu;
+			break;
+		case MessageType::INS:
+			message_ptr = &_ins;
 			break;
 		default:
 			break;
