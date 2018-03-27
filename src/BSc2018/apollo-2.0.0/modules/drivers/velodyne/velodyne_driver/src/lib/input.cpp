@@ -24,6 +24,7 @@ bool Input::exract_nmea_time_from_packet(const NMEATimePtr& nmea_time,
                                          const uint8_t* bytes) {
 //Emil & Daniel
 //Hårdkodat NMEA då LIDARen inte har detta just nu
+/*
   nmea_time->year = 18;
   nmea_time->mon = 3;
   nmea_time->day = 13;
@@ -32,6 +33,7 @@ bool Input::exract_nmea_time_from_packet(const NMEATimePtr& nmea_time,
   nmea_time->sec = 40;
 
   return true;
+*/
 //
   int gprmc_index = 206;
 

@@ -54,33 +54,13 @@ constexpr float FLOAT_NAN = std::numeric_limits<float>::quiet_NaN();
 
 static sbp_msg_callbacks_node_t heartbeat_callback_node;
 static sbp_msg_callbacks_node_t gps_time_callback_node;
+static sbp_msg_callbacks_node_t utc_time_callback_node;
 static sbp_msg_callbacks_node_t pos_llh_callback_node;
 static sbp_msg_callbacks_node_t pos_llh_cov_callback_node;
 static sbp_msg_callbacks_node_t orient_euler_callback_node;
 static sbp_msg_callbacks_node_t angular_rate_callback_node;
 static sbp_msg_callbacks_node_t imu_raw_callback_node;
 static sbp_msg_callbacks_node_t vel_ned_callback_node;
-
-// Functions to convert little endian bytes to nice types
-s32 bytesToSignedInt(u8 start, u8 msg[]){
-	return msg[start] | msg[start + 1] << 8 | msg[start + 2] << 16 | msg[start + 3] << 24;
-}
-
-u32 bytesToUnsignedInt(u8 start, u8 msg[]){
-	return (u32)bytesToSignedInt(start, msg);
-}
-
-s16 bytesToSignedShort(u8 start, u8 msg[]){
-	return msg[start] | msg[start + 1] << 8;
-}
-
-u16 bytesToUnsignedShort(u8 start, u8 msg[]){
-	return (u16)bytesToSignedShort(start, msg);
-}
-
-void bytesToDouble(double* out, u8 start, u8 msg[]){
-	std::memcpy(out, msg + start, 8);
-}
 
 // Converts a SBP Fixmode to a Novatel Position/Velocity type
 u32 fix_mode_to_position_type(SBPFixMode fixmode){
@@ -97,6 +77,10 @@ u32 fix_mode_to_position_type(SBPFixMode fixmode){
 	}
 }
 
+// Extracts flags from a 32 bit integer
+// If you have a flag enum between bit 3 and 5 on integer X for example, you can mask out
+// the number you're interested in using this function.
+// flag = extract_flags(data->flags, 3, 5);
 u32 extract_flags(u32 flag_integer, u32 start, u32 stop){
 	u32 a = (1 << start) - 1;
 	u32 b = ((1 << stop) - 1) | (1 << stop);
@@ -154,13 +138,26 @@ SBP Callbacks
 void heartbeat_callback(u16 sender_id, u8 len, u8 msg[], void *context){
 	(void) sender_id, (void) len, (void) msg, (void) context;
 
-	//SBPParser* dis = static_cast<SBPParser*>(context);
+	assert(len >= sizeof(msg_heartbeat_t));
+	msg_heartbeat_t* data = (msg_heartbeat_t*) msg;
 
-	u32 flags = bytesToUnsignedInt(0, msg);
+	u8 antenna_present = extract_flags(data->flags, 31, 31);
 
-	ROS_WARN_STREAM("GPS Heartbeat (Antenna " << ((flags & 0x80000000) > 0 ? "present" : "not present") << ")");
+	ROS_WARN_STREAM("GPS Heartbeat (Antenna " << (antenna_present > 0 ? "present" : "not present") << ")");
+}
 
+u32 lasttime = 0;
+void utc_time_callback(u16 sender_id, u8 len, u8 msg[], void *context){
+	(void) sender_id, (void) len, (void) msg, (void) context;
 
+	assert(len >= sizeof(msg_utc_time_t));
+	msg_utc_time_t* data = (msg_utc_time_t*) msg;
+
+	if(data->tow == lasttime)
+		return;
+	lasttime = data->tow;
+
+	ROS_WARN_STREAM("UTC TOW: " << data->tow << " NS: " << data->ns);
 }
 
 double lat;
@@ -169,15 +166,14 @@ double height;
 void gps_time_callback(u16 sender_id, u8 len, u8 msg[], void *context){
 	(void) sender_id, (void) len, (void) msg, (void) context;
 
-	//SBPParser* dis = static_cast<SBPParser*>(context);
+	assert(len >= sizeof(msg_gps_time_t));
+	msg_gps_time_t* data = (msg_gps_time_t*) msg;
 
-	u16 week_number = bytesToUnsignedShort(0, msg); // GPS week number
-	u32 time_of_week = bytesToUnsignedInt(2, msg); // Time of week in milliseconds
-	s32 time_of_week_offset = bytesToSignedInt(6, msg); // Nanosecond residual of time of week
+	setGPSWeek(data->wn);
 
-	setGPSWeek(week_number);
+	//ROS_WARN_STREAM("TOW: " << data->tow << " TOWOff: " << data->ns_residual);
 
-	double time = getGPSTime(time_of_week, time_of_week_offset);
+	double time = getGPSTime(data->tow + 0.1, data->ns_residual);
 
 	// testing INS here
 	if(_ins.measurement_time() == time)
@@ -209,8 +205,7 @@ void gps_time_callback(u16 sender_id, u8 len, u8 msg[], void *context){
 }
 
 char hexstr[4];
-char* int_to_hex( uint8_t i )
-{
+char* int_to_hex(uint8_t i){
 	sprintf(hexstr, "%02x", i);
 	return hexstr;
 }
@@ -225,7 +220,7 @@ bool pos_llh_gnss(msg_pos_llh_t* data){
 		ROS_WARN_STREAM("POS LLH used INS solution!");
 	}
 
-	ROS_WARN_STREAM("POSLLH " << data->tow << " " << std::fixed << gpstime);
+	//ROS_WARN_STREAM("POSLLH " << data->tow << " " << std::fixed << gpstime);
 
 	_gnss.set_measurement_time(gpstime);
 	_gnss.mutable_header()->set_timestamp_sec(ros::Time::now().toSec());
@@ -298,7 +293,6 @@ void pos_llh_callback(u16 sender_id, u8 len, u8 msg[], void *context){
 	(void) sender_id, (void) len, (void) msg, (void) context;
 
 	assert(len >= sizeof(msg_pos_llh_t));
-
 	msg_pos_llh_t* data = (msg_pos_llh_t*) msg;
 
 	if(pos_llh_gnss(data)){
@@ -316,7 +310,6 @@ void vel_ned_callback(u16 sender_id, u8 len, u8 msg[], void *context){
 	(void) sender_id, (void) len, (void) msg, (void) context;
 
 	assert(len >= sizeof(msg_vel_ned_t));
-
 	msg_vel_ned_t* data = (msg_vel_ned_t*) msg;
 
 	double gpstime = getGPSTime(data->tow);
@@ -347,7 +340,8 @@ void vel_ned_callback(u16 sender_id, u8 len, u8 msg[], void *context){
 void orient_euler_callback(u16 sender_id, u8 len, u8 msg[], void *context){
 	(void) sender_id, (void) len, (void) msg, (void) context;
 
-	msg_orient_euler_t* data = (msg_orient_euler_t*) msg;
+	assert(len >= sizeof(msg_orient_euler_t));
+	//msg_orient_euler_t* data = (msg_orient_euler_t*) msg;
 
 	ROS_WARN_STREAM("It's sending INS data!!");
 }
@@ -355,7 +349,8 @@ void orient_euler_callback(u16 sender_id, u8 len, u8 msg[], void *context){
 void angular_rate_callback(u16 sender_id, u8 len, u8 msg[], void *context){
 	(void) sender_id, (void) len, (void) msg, (void) context;
 
-	msg_angular_rate_t* data = (msg_angular_rate_t*) msg;
+	assert(len >= sizeof(msg_angular_rate_t));
+	//msg_angular_rate_t* data = (msg_angular_rate_t*) msg;
 
 	ROS_WARN_STREAM("It's sending INS data!!");
 }
@@ -365,13 +360,13 @@ void imu_raw_callback(u16 sender_id, u8 len, u8 msg[], void *context){
 
 	msg_imu_raw_t* data = (msg_imu_raw_t*) msg;
 
+	//ROS_WARN_STREAM("IMU TOW: " << data->tow << " TOWFrac: " << data->tow_f);
+
 	double gpstime = getGPSTime(data->tow);
 	if(_imu.measurement_time() == gpstime)
 		return;
 	_imu.set_measurement_time(gpstime);
 	_imu.mutable_header()->set_timestamp_sec(ros::Time::now().toSec());
-
-	ROS_WARN_STREAM("tjena " << -(data->acc_x * 1e-3));
 
 	_imu.mutable_linear_acceleration()->set_x(-data->acc_x * 1e-3);
 	_imu.mutable_linear_acceleration()->set_y(data->acc_y * 1e-3);
@@ -402,6 +397,7 @@ SBPParser::SBPParser() {
 	sbp_state_set_io_context(&s, this);
 	sbp_register_callback(&s, SBP_MSG_HEARTBEAT, &heartbeat_callback, NULL, &heartbeat_callback_node);
 	sbp_register_callback(&s, SBP_MSG_GPS_TIME, &gps_time_callback, NULL, &gps_time_callback_node);
+	//sbp_register_callback(&s, SBP_MSG_UTC_TIME, &utc_time_callback, NULL, &utc_time_callback_node);
 	sbp_register_callback(&s, SBP_MSG_POS_LLH, &pos_llh_callback, NULL, &pos_llh_callback_node);
 	sbp_register_callback(&s, SBP_MSG_ORIENT_EULER, &orient_euler_callback, NULL, &orient_euler_callback_node);
 	sbp_register_callback(&s, SBP_MSG_ANGULAR_RATE, &angular_rate_callback, NULL, &angular_rate_callback_node);
@@ -410,14 +406,10 @@ SBPParser::SBPParser() {
 }
 
 u32 piksi_port_read(u8 *buff, u32 n, void *context){
-	SBPParser* dis = static_cast<SBPParser*>(context);
-
 	// SBP library calls this function
 	// buff is the buffer in which it expects data when it's returned
 	// n is the amount of bytes which the library requests
 	// the function should return the amount of bytes read
-
-	//ROS_WARN_STREAM("piksi_port_read " << n);
 
 	// Make sure we don't read more bytes than we have
 	n = std::min(n, buffer_data_size - bytes_read);
@@ -436,10 +428,6 @@ void SBPParser::buffer_to_sbp_process(char* buffer, u32 len){
 
 	// Feed the entire buffer until its fully read
 	while(bytes_read < len){
-		//auto func = std::bind(&SBPParser::piksi_port_read, this);
-		//sbp_process(&s, func);
-		//sbp_process(&s, &piksi_port_read);
-
 		sbp_process(&s, &piksi_port_read);
 	}
 }
@@ -489,8 +477,6 @@ Parser::MessageType SBPParser::get_message(MessagePtr& message_ptr) {
 		default:
 			break;
 	}
-
-	//ROS_WARN_STREAM("heeej!");
 
 	return current_message;
 }
