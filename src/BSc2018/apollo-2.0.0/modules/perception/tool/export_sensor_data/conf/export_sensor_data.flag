@@ -22,7 +22,7 @@
 # ros TF2 quary child frame id. tf2_buffer.lookupTransform.
 # type: string
 # default: velodyne64
---lidar_tf2_child_frame_id=velodyne64
+--lidar_tf2_child_frame_id=velodyne16
 
 # radar tf2 frame_id
 # type: string

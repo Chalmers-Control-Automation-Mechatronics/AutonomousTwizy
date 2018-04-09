@@ -25,7 +25,7 @@ source "${DIR}/apollo_base.sh"
 
 function start() {
     LOG="${APOLLO_ROOT_DIR}/data/log/velodyne.out"
-    CMD="roslaunch velodyne start_velodyne.launch"
+    CMD="roslaunch velodyne start_velodyne_16.launch"
     NUM_PROCESSES="$(pgrep -c -f "velodyne_nodelet_manager")"
     if [ "${NUM_PROCESSES}" -eq 0 ]; then
        eval "nohup ${CMD} </dev/null >${LOG} 2>&1 &"

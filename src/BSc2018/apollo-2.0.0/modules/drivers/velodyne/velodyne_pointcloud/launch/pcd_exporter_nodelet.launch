@@ -1,10 +1,10 @@
 <launch>
     <arg name="pcd_folder" default="/apollo/data/pcd"/>
     <arg name="skip_static_frames" default="false"/>
-    <arg name="child_frame_id" default="velodyne64"/>
+    <arg name="child_frame_id" default="velodyne16"/>
     <arg name="stamp_file" default="$(arg pcd_folder)/stamp.txt"/>
     <arg name="pose_file" default="$(arg pcd_folder)/pose.txt"/>
-    <arg name="topic_pointcloud" default="/apollo/sensor/velodyne64/PointCloud2"/>
+    <arg name="topic_pointcloud" default="/apollo/sensor/velodyne16/PointCloud2"/>
     <arg name="queue_size" default="10"/>
     
     <node pkg="nodelet" type="nodelet" name="pcd_exporter_nodelet" 

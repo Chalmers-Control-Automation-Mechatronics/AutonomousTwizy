@@ -66,15 +66,15 @@ bool LidarExChecker::GetExtrinsics() {
 
   std::string err_msg;
 
-  if (!tf2_buffer.canTransform("novatel", "velodyne64", ros::Time(0),
+  if (!tf2_buffer.canTransform("novatel", "velodyne16", ros::Time(0),
                                ros::Duration(100), &err_msg)) {
-    std::cerr << "Fail to get velodyne64 extrinsics for tf" << std::endl;
+    std::cerr << "Fail to get velodyne16 extrinsics for tf" << std::endl;
     return false;
   }
 
   geometry_msgs::TransformStamped transform_stamped;
   transform_stamped =
-      tf2_buffer.lookupTransform("novatel", "velodyne64", ros::Time(0));
+      tf2_buffer.lookupTransform("novatel", "velodyne16", ros::Time(0));
   tf::transformMsgToEigen(transform_stamped.transform, extrinsics_);
 
   return true;

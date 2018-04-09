@@ -29,12 +29,12 @@ Compensator::Compensator(ros::NodeHandle node, ros::NodeHandle private_nh)
       timestamp_offset_(-1),
       timestamp_data_size_(0) {
   private_nh.param("child_frame_id", child_frame_id_,
-                   std::string("velodyne64"));
+                   std::string("velodyne16"));
   private_nh.param("topic_compensated_pointcloud",
                    topic_compensated_pointcloud_, TOPIC_COMPENSATED_POINTCLOUD);
   private_nh.param("topic_pointcloud", topic_pointcloud_, TOPIC_POINTCLOUD);
   private_nh.param("queue_size", queue_size_, 10);
-  private_nh.param("tf_query_timeout", tf_timeout_, float(0.1));
+  private_nh.param("tf_query_timeout", tf_timeout_, float(2));
 
   // advertise output point cloud (before subscribing to input data)
   compensation_pub_ = node.advertise<sensor_msgs::PointCloud2>(

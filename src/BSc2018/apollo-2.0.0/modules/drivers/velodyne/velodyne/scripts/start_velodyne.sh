@@ -19,16 +19,16 @@
 
 if  pidof -o %PPID -x "roscore" > /dev/null; then
 
-  if rosnode list |grep velodyne64_driver > /dev/null; then
-    rosnode kill /velodyne64_driver
+  if rosnode list |grep velodyne16_driver > /dev/null; then
+    rosnode kill /velodyne16_driver
   fi
 
-  if rosnode list |grep velodyne64_convert > /dev/null; then
-    rosnode kill /velodyne64_convert
+  if rosnode list |grep velodyne16_convert > /dev/null; then
+    rosnode kill /velodyne16_convert
   fi
 
-  if rosnode list |grep velodyne64_compensator > /dev/null; then
-    rosnode kill /velodyne64_compensator
+  if rosnode list |grep velodyne16_compensator > /dev/null; then
+    rosnode kill /velodyne16_compensator
   fi
 
   if rosnode list |grep velodyne_nodelet_manager > /dev/null; then
