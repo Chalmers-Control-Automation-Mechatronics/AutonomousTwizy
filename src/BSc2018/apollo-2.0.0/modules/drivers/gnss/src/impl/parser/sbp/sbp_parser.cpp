@@ -46,6 +46,16 @@ enum class SBPFixMode : u8 {
 	DEAD_RECKONING = 5
 };
 
+enum class SBPSignalCode : u8 {
+	GPS_L1CA = 0,
+	GPS_L2CM = 1,
+	SBAS_L1CA = 2,
+	GLO_L1CA = 3,
+	GLO_L2CA = 4,
+	GPS_L1P = 5,
+	GPS_L2P = 6
+};
+
 namespace {
 
 constexpr int SECONDS_PER_WEEK = 60 * 60 * 24 * 7;
@@ -61,6 +71,7 @@ static sbp_msg_callbacks_node_t orient_euler_callback_node;
 static sbp_msg_callbacks_node_t angular_rate_callback_node;
 static sbp_msg_callbacks_node_t imu_raw_callback_node;
 static sbp_msg_callbacks_node_t vel_ned_callback_node;
+static sbp_msg_callbacks_node_t obs_callback_node;
 
 // Converts a SBP Fixmode to a Novatel Position/Velocity type
 u32 fix_mode_to_position_type(SBPFixMode fixmode){
@@ -75,6 +86,68 @@ u32 fix_mode_to_position_type(SBPFixMode fixmode){
 		default:
 			return 0;
 	}
+}
+
+void signal_code_to_band_id(SBPSignalCode code,
+							apollo::drivers::gnss::GnssBandID &bandid,
+							apollo::drivers::gnss::GnssType &gnsstype,
+							apollo::drivers::gnss::PseudoType &pseudotype){
+	// Band ID
+	switch(code){
+		case SBPSignalCode::GPS_L1CA:
+		case SBPSignalCode::GPS_L1P:
+			bandid = apollo::drivers::gnss::GnssBandID::GPS_L1;
+			break;
+		case SBPSignalCode::GPS_L2CM:
+		case SBPSignalCode::GPS_L2P:
+			bandid = apollo::drivers::gnss::GnssBandID::GPS_L2;
+			break;
+		case SBPSignalCode::GLO_L1CA:
+			bandid = apollo::drivers::gnss::GnssBandID::GLO_G1;
+			break;
+		case SBPSignalCode::GLO_L2CA:
+			bandid = apollo::drivers::gnss::GnssBandID::GLO_G2;
+			break;
+		default:
+			bandid = apollo::drivers::gnss::GnssBandID::BAND_UNKNOWN;
+			break;
+	}
+
+	// Constellation
+	switch(code){
+		case SBPSignalCode::GPS_L1CA:
+		case SBPSignalCode::GPS_L1P:
+		case SBPSignalCode::GPS_L2CM:
+		case SBPSignalCode::GPS_L2P:
+			gnsstype = apollo::drivers::gnss::GnssType::GPS_SYS;
+			break;
+		case SBPSignalCode::GLO_L1CA:
+		case SBPSignalCode::GLO_L2CA:
+			gnsstype = apollo::drivers::gnss::GnssType::GLO_SYS;
+			break;
+		default:
+			gnsstype = apollo::drivers::gnss::GnssType::SYS_UNKNOWN;
+			break;
+	}
+
+	// Precision Type
+	switch(code){
+		case SBPSignalCode::GPS_L1CA:
+		case SBPSignalCode::GPS_L2CM:
+		case SBPSignalCode::GLO_L1CA:
+		case SBPSignalCode::GLO_L2CA:
+			pseudotype = apollo::drivers::gnss::PseudoType::CORSE_CODE;
+			break;
+		case SBPSignalCode::GPS_L1P:
+		case SBPSignalCode::GPS_L2P:
+			pseudotype = apollo::drivers::gnss::PseudoType::PRECISION_CODE;
+			break;
+		default:
+			pseudotype = apollo::drivers::gnss::PseudoType::CODE_UNKNOWN;
+			break;
+	}
+
+	return;
 }
 
 // Extracts flags from a 32 bit integer
@@ -363,7 +436,7 @@ void imu_raw_callback(u16 sender_id, u8 len, u8 msg[], void *context){
 	//ROS_WARN_STREAM("IMU TOW: " << data->tow << " TOWFrac: " << data->tow_f);
 
 	double gpstime = getGPSTime(data->tow);
-	if(_imu.measurement_time() == gpstime)
+	if((gpstime - _imu.measurement_time()) < 1e-2) // Don't accept any messages older than our current
 		return;
 	_imu.set_measurement_time(gpstime);
 	_imu.mutable_header()->set_timestamp_sec(ros::Time::now().toSec());
@@ -377,6 +450,61 @@ void imu_raw_callback(u16 sender_id, u8 len, u8 msg[], void *context){
 	_imu.mutable_angular_velocity()->set_z(data->gyr_z * 1e-3);
 
 	current_message = Parser::MessageType::IMU;
+}
+
+void obs_callback(u16 sender_id, u8 len, u8 msg[], void *context){
+	(void) sender_id, (void) len, (void) msg, (void) context;
+
+	observation_header_t* header = (observation_header_t*) msg;
+
+	sbp_gps_time_t* header_time = (sbp_gps_time_t*) &header->t;
+	setGPSWeek(header_time->wn);
+	double gpstime = getGPSTime(header_time->tow, header_time->ns_residual);
+
+	/*
+	// vetifan hur den här fungerar
+	u8 n_obs = header->n_obs;
+	*/
+
+	//räknar ut det manuellt istället
+	u8 n_obs = (len - 11.0) / 17.0; // 11 bytes header, 17 bytes per obs
+
+	_gnss_observation.Clear();
+	_gnss_observation.set_receiver_id(0); // Rover
+
+	_gnss_observation.set_gnss_time_type(apollo::drivers::gnss::GPS_TIME);
+	_gnss_observation.set_gnss_week(header_time->wn);
+	_gnss_observation.set_gnss_second_s(gpstime);
+
+	_gnss_observation.set_sat_obs_num(n_obs);
+
+	for(int i = 0; i < n_obs; i++){
+		packed_obs_content_t* obs = (packed_obs_content_t*) &msg[17 * i + 11];
+
+		apollo::drivers::gnss::GnssBandID band_id;
+		apollo::drivers::gnss::GnssType gnss_type;
+		apollo::drivers::gnss::PseudoType pseudo_type;
+
+		signal_code_to_band_id(static_cast<SBPSignalCode>(obs->sid.code),
+			band_id,
+			gnss_type,
+			pseudo_type);
+
+		auto sat_obs = _gnss_observation.add_sat_obs();
+		sat_obs->set_sat_prn(obs->sid.sat);
+		sat_obs->set_sat_sys(gnss_type);
+
+		sat_obs->set_band_obs_num(1);
+		auto band_obs = sat_obs->add_band_obs();
+		band_obs->set_pseudo_type(pseudo_type);
+		band_obs->set_band_id(band_id);
+		band_obs->set_frequency_value(0);
+		band_obs->set_pseudo_range(obs->P * 2e-2);
+		band_obs->set_carrier_phase(obs->L.i + obs->L.f / 256.0);
+		band_obs->set_doppler(obs->D.i + obs->D.f / 256.0);
+		band_obs->set_loss_lock_index(obs->lock);
+		band_obs->set_snr(obs->cn0 / 4.0);
+	}
 }
 /*
 End of callbacks
@@ -403,6 +531,7 @@ SBPParser::SBPParser() {
 	sbp_register_callback(&s, SBP_MSG_ANGULAR_RATE, &angular_rate_callback, NULL, &angular_rate_callback_node);
 	sbp_register_callback(&s, SBP_MSG_IMU_RAW, &imu_raw_callback, NULL, &imu_raw_callback_node);
 	sbp_register_callback(&s, SBP_MSG_VEL_NED, &vel_ned_callback, NULL, &vel_ned_callback_node);
+	sbp_register_callback(&s, SBP_MSG_OBS, &obs_callback, NULL, &obs_callback_node);
 }
 
 u32 piksi_port_read(u8 *buff, u32 n, void *context){
