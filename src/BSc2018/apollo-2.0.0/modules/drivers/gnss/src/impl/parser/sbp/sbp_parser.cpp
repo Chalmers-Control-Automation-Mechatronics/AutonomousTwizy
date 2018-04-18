@@ -31,6 +31,31 @@
 #include <libsbp/system.h>
 #include <libsbp/tracking.h>
 
+#include <kalman/time_update.h>
+#include <kalman/messure_update_g.h>
+#include <kalman/messure_update.h>
+#include <kalman/q2e.h>
+#include <kalman/q2e_initialize.h>
+#include <kalman/q2e_terminate.h>
+#include <kalman/ll2utm_c.h>
+#include <kalman/utm2ll_c.h>
+#include <kalman/Qq.h>
+#include <kalman/P2EulerCov.h>
+#include <kalman/P2EulerCov_initialize.h>
+#include <kalman/P2EulerCov_terminate.h>
+
+#include <kalman/ll2utm_c_initialize.h>
+#include <kalman/ll2utm_initialize.h>
+#include <kalman/messure_update_g_initialize.h>
+#include <kalman/messure_update_initialize.h>
+#include <kalman/rt_nonfinite.h>
+
+#include <kalman/ll2utm_c_terminate.h>
+#include <kalman/ll2utm_terminate.h>
+#include <kalman/messure_update_g_terminate.h>
+#include <kalman/messure_update_terminate.h>
+
+
 #define GEOIDHEIGHT (35.885) // Geoid height for Chalmers Johanneberg, Gothenburg, Sweden
 
 namespace apollo {
@@ -64,14 +89,22 @@ constexpr float FLOAT_NAN = std::numeric_limits<float>::quiet_NaN();
 
 static sbp_msg_callbacks_node_t heartbeat_callback_node;
 static sbp_msg_callbacks_node_t gps_time_callback_node;
-static sbp_msg_callbacks_node_t utc_time_callback_node;
+//static sbp_msg_callbacks_node_t utc_time_callback_node;
 static sbp_msg_callbacks_node_t pos_llh_callback_node;
-static sbp_msg_callbacks_node_t pos_llh_cov_callback_node;
+//static sbp_msg_callbacks_node_t pos_llh_cov_callback_node;
 static sbp_msg_callbacks_node_t orient_euler_callback_node;
 static sbp_msg_callbacks_node_t angular_rate_callback_node;
 static sbp_msg_callbacks_node_t imu_raw_callback_node;
 static sbp_msg_callbacks_node_t vel_ned_callback_node;
 static sbp_msg_callbacks_node_t obs_callback_node;
+static sbp_msg_callbacks_node_t eph_gps_callback_node;
+static sbp_msg_callbacks_node_t eph_glo_callback_node;
+
+// Constants and globals for Kalman Filter
+double xStateVector[8] = {0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0};
+double pCovVector[64];
+const int UTM_ZONE = 33;
+bool initPosSet = false;
 
 // Converts a SBP Fixmode to a Novatel Position/Velocity type
 u32 fix_mode_to_position_type(SBPFixMode fixmode){
@@ -86,6 +119,15 @@ u32 fix_mode_to_position_type(SBPFixMode fixmode){
 		default:
 			return 0;
 	}
+}
+
+// A helper that fills an Point3D object (which uses the FLU frame) using RFU
+// measurements.
+inline void rfu_to_flu(double r, double f, double u,
+                       ::apollo::common::Point3D* flu) {
+  flu->set_x(f);
+  flu->set_y(-r);
+  flu->set_z(u);
 }
 
 void signal_code_to_band_id(SBPSignalCode code,
@@ -190,6 +232,9 @@ Parser::MessageType current_message;
 
 }
 
+void init_kalman();
+void update_kalman_gps(msg_pos_llh_t* data);
+
 class SBPParser : public Parser {
 public:
 	SBPParser();
@@ -202,6 +247,8 @@ public:
 };
 
 Parser* Parser::create_sbp() {
+	init_kalman();
+
 	return new SBPParser();
 }
 
@@ -246,33 +293,7 @@ void gps_time_callback(u16 sender_id, u8 len, u8 msg[], void *context){
 
 	//ROS_WARN_STREAM("TOW: " << data->tow << " TOWOff: " << data->ns_residual);
 
-	double time = getGPSTime(data->tow + 0.1, data->ns_residual);
 
-	// testing INS here
-	if(_ins.measurement_time() == time)
-		return;
-	_ins.set_measurement_time(time);
-
-	_ins.set_type(apollo::drivers::gnss::Ins::GOOD);
-
-	_ins.mutable_position()->set_lat(lat);
-	_ins.mutable_position()->set_lon(lon);
-	_ins.mutable_position()->set_height(height);
-
-	_ins.mutable_euler_angles()->set_x(0);
-	_ins.mutable_euler_angles()->set_y(0);
-	_ins.mutable_euler_angles()->set_z(0);
-
-	for (int i = 0; i < 9; i += 4) {
-		_ins.set_position_covariance(i, 1);
-		_ins.set_euler_angles_covariance(i, 1);
-		_ins.set_linear_velocity_covariance(i, 1);
-	}
-
-	current_message = Parser::MessageType::INS;
-
-
-	//ROS_WARN_STREAM("GPS Time: " << time_of_week);
 
 	//_gnss.set_measurement_time(time);
 }
@@ -301,6 +322,8 @@ bool pos_llh_gnss(msg_pos_llh_t* data){
 	lat = data->lat;
 	lon = data->lon;
 	height = data->height;
+
+	update_kalman_gps(data);
 
 	_gnss.mutable_position()->set_lat(data->lat);
 	_gnss.mutable_position()->set_lon(data->lon);
@@ -428,16 +451,82 @@ void angular_rate_callback(u16 sender_id, u8 len, u8 msg[], void *context){
 	ROS_WARN_STREAM("It's sending INS data!!");
 }
 
-void imu_raw_callback(u16 sender_id, u8 len, u8 msg[], void *context){
-	(void) sender_id, (void) len, (void) msg, (void) context;
 
-	msg_imu_raw_t* data = (msg_imu_raw_t*) msg;
 
-	//ROS_WARN_STREAM("IMU TOW: " << data->tow << " TOWFrac: " << data->tow_f);
+void init_kalman(){
+	for (int i = 0; i<64; i++){
+		if(i%9 == 0){
+			pCovVector[i] = 1.0;
+		}
+		else {
+			pCovVector[i] = 0.0;
+		}
+	}
 
-	double gpstime = getGPSTime(data->tow);
-	if((gpstime - _imu.measurement_time()) < 1e-2) // Don't accept any messages older than our current
+
+	xStateVector[0] = 0;
+	xStateVector[1] = 0;
+	xStateVector[2] = 0;
+	xStateVector[3] = 0;
+	xStateVector[4] = 1;
+	xStateVector[5] = 0;
+	xStateVector[6] = 0;
+	xStateVector[7] = 0;
+
+	ROS_WARN_STREAM("Init Kalman successful");
+}
+
+void update_kalman_gps(msg_pos_llh_t* data) {
+
+	double lat = data->lat;
+	double lon = data->lon;
+	double height = data->height;
+
+
+	double Rp[9] = {(data->h_accuracy/1000.0)*(data->h_accuracy/1000.0), 0.0, 0.0,
+					0.0, (data->h_accuracy/1000.0)*(data->h_accuracy/1000.0), 0.0,
+					0.0, 0.0, (data->v_accuracy/1000.0)*(data->v_accuracy/1000.0)};
+
+	ROS_WARN_STREAM("h_accuracy: " << Rp[0] << "      h_accuracy: " << Rp[8]);
+
+
+	// Covert to UTM
+	double x, y;
+	ll2utm_c_initialize();
+	ll2utm_c(lat, lon, 33, &x, &y);
+	ll2utm_c_terminate();
+
+	if(!initPosSet) {
+
+		xStateVector[0] = x;
+		xStateVector[1] = y;
+		xStateVector[2] = height;
+		xStateVector[3] = 0;
+
+		initPosSet = true;
+
+		ROS_WARN_STREAM("GNSS pos init: DONE");
+
+
 		return;
+	}
+
+	double pos[3];
+	pos[0] = x;
+	pos[1] = y;
+	pos[2] = height;
+
+	messure_update_initialize();
+	messure_update(xStateVector, pCovVector, pos, Rp);
+	messure_update_terminate();
+
+}
+
+bool imu_imu_raw(msg_imu_raw_t* data){
+	double gpstime = getGPSTime(data->tow);
+	if((gpstime - _imu.measurement_time()) < 1e-3) // Don't accept any messages older than our current
+		return false;
+	//ROS_WARN_STREAM("RAW dt: " << gpstime-_imu.measurement_time());
 	_imu.set_measurement_time(gpstime);
 	_imu.mutable_header()->set_timestamp_sec(ros::Time::now().toSec());
 
@@ -449,7 +538,168 @@ void imu_raw_callback(u16 sender_id, u8 len, u8 msg[], void *context){
 	_imu.mutable_angular_velocity()->set_y(data->gyr_y * 1e-3);
 	_imu.mutable_angular_velocity()->set_z(data->gyr_z * 1e-3);
 
-	current_message = Parser::MessageType::IMU;
+	return true;
+}
+
+bool imu_ins(msg_imu_raw_t* data){
+	//current_message = Parser::MessageType::INS;
+
+	double gpstime = getGPSTime(data->tow);
+	if((gpstime - _ins.measurement_time()) < 1e-3) // Don't accept any messages older than our current
+		return false;
+
+	double deltaT = gpstime - _ins.measurement_time();
+	_ins.set_measurement_time(gpstime);
+	_ins.mutable_header()->set_timestamp_sec(ros::Time::now().toSec());
+
+	if(deltaT > 1e2) // DeltaT will be very big first frame due to there not being any proper time to compare with
+		return false;
+
+	// Do the Kalman dance
+
+	// Switched x and y aacording to IMU orientation.
+	double Ra[9] = {0, (1.0e-5)*0.0802, 0,
+					(1.0e-5)*0.0654, 0, 0,
+					0, 0, (1.0e-5)*0.1236};
+
+	double Rw[9] = {0, (1.0e-6)*0.4305, 0,
+					(1.0e-6)*0.3410, 0, 0,
+					0, 0, (1.0e-6)*0.3449};
+
+
+	// Cordinate transformation accoriding to IMU orientation in car.
+	// The IMU is mounteted with -x north, z down.
+	// According to the model y is north, z up, x east.
+	double gyr[3];
+	gyr[0] = -1 * (double)data->gyr_y * RT_PI/180.0/32.8;
+	gyr[1] = -1 * (double)data->gyr_x * RT_PI/180.0/32.8;
+	gyr[2] = -1 * (double)data->gyr_z * RT_PI/180.0/32.8;
+
+	double acc[3];
+	acc[0] = -1 * (double)data->acc_y / 4096.0*9.8;
+	acc[1] = -1 * (double)data->acc_x / 4096.0*9.8;
+	acc[2] = -1 * (double)data->acc_z / 4096.0*9.8;
+
+	messure_update_initialize();
+
+
+	time_update(xStateVector, pCovVector, deltaT, gyr, acc, Ra, Rw);
+	messure_update_g(xStateVector, pCovVector, acc, Ra);
+	messure_update_terminate();
+
+
+	// Calculate lon, lat from UTM-coords in xStatevector from EKF
+	double latitude, longitude;
+	utm2ll_c(xStateVector[0], xStateVector[1], UTM_ZONE, &latitude, &longitude);
+
+
+	// Calculate eueler angles form quaternion in xStateVector from EKF.
+	double euler[3];
+	double quaternion[4];
+	quaternion[0] = xStateVector[4];
+	quaternion[1] = xStateVector[5];
+	quaternion[2] = xStateVector[6];
+	quaternion[3] = xStateVector[7];
+
+	q2e_initialize();
+	q2e(quaternion, euler);
+	q2e_terminate();
+
+
+
+	_ins.mutable_position()->set_lat(latitude);
+	_ins.mutable_position()->set_lon(longitude);
+	_ins.mutable_position()->set_height(xStateVector[2]);
+
+	// Euler angles with intrinsic rotation sequence ZYX
+	_ins.mutable_euler_angles()->set_z(euler[0]);
+	_ins.mutable_euler_angles()->set_y(euler[1]);
+	_ins.mutable_euler_angles()->set_x(euler[2]);
+
+
+	double Qrotation[9];
+	Qq(quaternion, Qrotation);
+
+	double xVel = Qrotation[1]*xStateVector[3];
+	double yVel = Qrotation[4]*xStateVector[3];
+	double zVel = Qrotation[7]*xStateVector[3];
+
+	_ins.mutable_linear_velocity()->set_x(xVel);
+	_ins.mutable_linear_velocity()->set_y(yVel);
+	_ins.mutable_linear_velocity()->set_z(zVel);
+
+	rfu_to_flu(gyr[0], gyr[1], gyr[2], _ins.mutable_angular_velocity());
+
+	double body_acc[3];
+
+	// Remove gravity.
+	body_acc[0] = acc[0] - Qrotation[2]*9.82;
+	body_acc[1] = acc[1] - Qrotation[5]*9.82;
+	body_acc[2] = acc[2] - Qrotation[8]*9.82;
+
+	rfu_to_flu(body_acc[0], body_acc[1], body_acc[2], _ins.mutable_linear_acceleration());
+
+
+	// Pos cov
+	_ins.set_position_covariance(0, pCovVector[0]);
+	_ins.set_position_covariance(1, pCovVector[1]);
+	_ins.set_position_covariance(2, pCovVector[2]);
+	_ins.set_position_covariance(3, pCovVector[8]);
+	_ins.set_position_covariance(4, pCovVector[9]);
+	_ins.set_position_covariance(5, pCovVector[10]);
+	_ins.set_position_covariance(6, pCovVector[16]);
+	_ins.set_position_covariance(7, pCovVector[17]);
+	_ins.set_position_covariance(8, pCovVector[18]);
+
+	// Euler angles cov
+	double eulCov[3];
+	P2EulerCov_initialize();
+	P2EulerCov(pCovVector, quaternion, eulCov);
+	P2EulerCov_terminate();
+	//quatCov[0] = pCovVector[ ]
+	for(int i = 0; i<9; i++){
+		_ins.set_euler_angles_covariance(i, eulCov[i]);
+	}
+
+	// TODO: Fix these covar matrixes
+	for (int i = 0; i < 9; i += 4) {
+		_ins.set_linear_velocity_covariance(i, pCovVector[27]);
+	}
+
+
+
+	// TODO: Fix INS-status
+
+	if( (xStateVector[3] > 10) || (xStateVector[3] < -10 ) || (xStateVector[2]>120) || (xStateVector[2]<90)){
+		_ins.set_type(apollo::drivers::gnss::Ins::INVALID);
+	}
+	else {
+		_ins.set_type(apollo::drivers::gnss::Ins::GOOD);
+	}
+
+
+	//ROS_WARN_STREAM("Euler: " << " Z:" << euler[0] << " Y:" << euler[1] << " X:" << euler[2]);
+	//ROS_WARN_STREAM("Pos: " << " lon: " << longitude << ", lat: " << latitude << ", height: " << xStateVector[2] << "vel: " << xStateVector[3]);
+
+
+	return true;
+}
+
+void imu_raw_callback(u16 sender_id, u8 len, u8 msg[], void *context){
+	(void) sender_id, (void) len, (void) msg, (void) context;
+
+	msg_imu_raw_t* data = (msg_imu_raw_t*) msg;
+
+	//ROS_WARN_STREAM("IMU TOW: " << data->tow << " TOWFrac: " << data->tow_f);
+	if(imu_imu_raw(data)){
+		current_message = Parser::MessageType::IMU;
+		return;
+	}
+
+	if(imu_ins(data)){
+		current_message = Parser::MessageType::INS;
+		return;
+	}
 }
 
 void obs_callback(u16 sender_id, u8 len, u8 msg[], void *context){
@@ -460,6 +710,9 @@ void obs_callback(u16 sender_id, u8 len, u8 msg[], void *context){
 	sbp_gps_time_t* header_time = (sbp_gps_time_t*) &header->t;
 	setGPSWeek(header_time->wn);
 	double gpstime = getGPSTime(header_time->tow, header_time->ns_residual);
+
+	if((gpstime - _gnss_observation.gnss_second_s()) < 1e-2)
+		return;
 
 	/*
 	// vetifan hur den här fungerar
@@ -505,6 +758,110 @@ void obs_callback(u16 sender_id, u8 len, u8 msg[], void *context){
 		band_obs->set_loss_lock_index(obs->lock);
 		band_obs->set_snr(obs->cn0 / 4.0);
 	}
+
+	current_message = Parser::MessageType::OBSERVATION;
+}
+
+void eph_gps_callback(u16 sender_id, u8 len, u8 msg[], void *context){
+	(void) sender_id, (void) len, (void) msg, (void) context;
+
+	msg_ephemeris_gps_t* data = (msg_ephemeris_gps_t*) msg;
+	ephemeris_common_content_t* common = (ephemeris_common_content_t*) &data->common;
+
+	_gnss_ephemeris.set_gnss_type(apollo::drivers::gnss::GnssType::GPS_SYS);
+
+	apollo::drivers::gnss::KepplerOrbit* keppler_orbit =
+		_gnss_ephemeris.mutable_keppler_orbit();
+
+	keppler_orbit->set_gnss_type(apollo::drivers::gnss::GnssType::GPS_SYS);
+	keppler_orbit->set_gnss_time_type(
+		apollo::drivers::gnss::GnssTimeType::GPS_TIME);
+
+	double toetime = getGPSTime(common->toe.tow);
+	if((toetime - keppler_orbit->toe()) < 1e-2)
+		return;
+
+	setGPSWeek(common->toe.wn);
+	keppler_orbit->set_toe(toetime);
+
+	setGPSWeek(data->toc.wn);
+	keppler_orbit->set_toc(getGPSTime(data->toc.tow));
+
+	keppler_orbit->set_sat_prn(common->sid.sat);
+	keppler_orbit->set_week_num(data->toc.wn);
+	keppler_orbit->set_af0(data->af0);
+	keppler_orbit->set_af1(data->af1);
+	keppler_orbit->set_af2(data->af2);
+	keppler_orbit->set_iode(data->iode);
+	keppler_orbit->set_deltan(data->dn);
+	keppler_orbit->set_m0(data->m0);
+	keppler_orbit->set_e(data->ecc);
+	keppler_orbit->set_roota(data->sqrta);
+	keppler_orbit->set_cic(data->c_ic);
+	keppler_orbit->set_cis(data->c_is);
+	keppler_orbit->set_crc(data->c_rc);
+	keppler_orbit->set_crs(data->c_rs);
+	keppler_orbit->set_cuc(data->c_uc);
+	keppler_orbit->set_cus(data->c_us);
+	keppler_orbit->set_omega0(data->omega0);
+	keppler_orbit->set_omega(data->w);
+	keppler_orbit->set_omegadot(data->omegadot);
+	keppler_orbit->set_i0(data->inc);
+	keppler_orbit->set_idot(data->inc_dot);
+	keppler_orbit->set_accuracy(common->ura);
+	keppler_orbit->set_health(common->health_bits);
+	keppler_orbit->set_tgd(data->tgd);
+	keppler_orbit->set_iodc(data->iodc);
+
+	current_message = Parser::MessageType::GPSEPHEMERIDES;
+}
+
+void eph_glo_callback(u16 sender_id, u8 len, u8 msg[], void *context){
+	(void) sender_id, (void) len, (void) msg, (void) context;
+
+	msg_ephemeris_glo_t* data = (msg_ephemeris_glo_t*) msg;
+	ephemeris_common_content_t* common = (ephemeris_common_content_t*) &data->common;
+
+	_gnss_ephemeris.set_gnss_type(apollo::drivers::gnss::GnssType::GLO_SYS);
+
+	apollo::drivers::gnss::GlonassOrbit* glonass_orbit =
+		_gnss_ephemeris.mutable_glonass_orbit();
+
+	glonass_orbit->set_gnss_time_type(
+		apollo::drivers::gnss::GnssTimeType::GLO_TIME);
+
+	glonass_orbit->set_slot_prn(common->sid.sat);
+
+	u32 toetow = common->toe.tow;
+	if((toetow - glonass_orbit->week_second_s()) < 1e-2)
+		return;
+
+	setGPSWeek(common->toe.wn);
+	glonass_orbit->set_toe(getGPSTime(common->toe.tow));
+
+	glonass_orbit->set_frequency_no(data->fcn);
+	glonass_orbit->set_week_num(common->toe.wn); // this should be TOC but SBP doesn't supply
+	glonass_orbit->set_week_second_s(common->toe.tow); // this should be TOC but SBP doesn't supply
+	//glonass_orbit->set_tk(data->Tk); // UH OH
+	glonass_orbit->set_clock_offset(-data->tau);
+	glonass_orbit->set_clock_drift(data->gamma);
+
+	glonass_orbit->set_health(common->health_bits);
+	glonass_orbit->set_position_x(data->pos[0]);
+	glonass_orbit->set_position_y(data->pos[1]);
+	glonass_orbit->set_position_z(data->pos[2]);
+
+	glonass_orbit->set_velocity_x(data->vel[0]);
+	glonass_orbit->set_velocity_y(data->vel[1]);
+	glonass_orbit->set_velocity_z(data->vel[2]);
+
+	glonass_orbit->set_accelerate_x(data->acc[0]);
+	glonass_orbit->set_accelerate_y(data->acc[1]);
+	glonass_orbit->set_accelerate_z(data->acc[2]);
+
+	//glonass_orbit->set_infor_age(data->age); // UH OH
+
+	current_message = Parser::MessageType::GLOEPHEMERIDES;
 }
 /*
 End of callbacks
@@ -532,6 +889,8 @@ SBPParser::SBPParser() {
 	sbp_register_callback(&s, SBP_MSG_IMU_RAW, &imu_raw_callback, NULL, &imu_raw_callback_node);
 	sbp_register_callback(&s, SBP_MSG_VEL_NED, &vel_ned_callback, NULL, &vel_ned_callback_node);
 	sbp_register_callback(&s, SBP_MSG_OBS, &obs_callback, NULL, &obs_callback_node);
+	sbp_register_callback(&s, SBP_MSG_EPHEMERIS_GPS, &eph_gps_callback, NULL, &eph_gps_callback_node);
+	sbp_register_callback(&s, SBP_MSG_EPHEMERIS_GLO, &eph_glo_callback, NULL, &eph_glo_callback_node);
 }
 
 u32 piksi_port_read(u8 *buff, u32 n, void *context){
@@ -602,6 +961,13 @@ Parser::MessageType SBPParser::get_message(MessagePtr& message_ptr) {
 			break;
 		case MessageType::INS:
 			message_ptr = &_ins;
+			break;
+		case MessageType::OBSERVATION:
+			message_ptr = &_gnss_observation;
+			break;
+		case MessageType::GPSEPHEMERIDES:
+		case MessageType::GLOEPHEMERIDES:
+			message_ptr = &_gnss_ephemeris;
 			break;
 		default:
 			break;
