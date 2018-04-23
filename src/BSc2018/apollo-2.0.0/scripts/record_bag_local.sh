@@ -62,7 +62,7 @@ function start() {
         /apollo/sensor/gnss/odometry \
         /apollo/sensor/gnss/rtk_eph \
         /apollo/sensor/gnss/rtk_obs \
-        /apollo/sensor/velodyne64/compensator/PointCloud2 \
+        /apollo/sensor/velodyne16/compensator/PointCloud2 \
         /apollo/localization/pose \
         /apollo/localization/msf_gnss \
         /apollo/localization/msf_lidar \

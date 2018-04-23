@@ -38,7 +38,7 @@ function check_bag() {
   fi
 
   # check VelodyneScan topic
-  FLAG=`echo ${INFO} | awk '{print match($0, "/apollo/sensor/velodyne64/VelodyneScanUnified")}'`
+  FLAG=`echo ${INFO} | awk '{print match($0, "/apollo/sensor/velodyne16/VelodyneScanUnified")}'`
   if [ ${FLAG} -eq 0 ]; then
     echo "No VelodyneScan topic. "
     RESULT=1
@@ -93,7 +93,7 @@ function start_record() {
     if [ "${NUM_PROCESSES}" -eq 0 ]; then
       nohup rosbag record -b 2048 -O lidar_calib.bag  \
         /apollo/sensor/gnss/ins_stat \
-        /apollo/sensor/velodyne64/VelodyneScanUnified \
+        /apollo/sensor/velodyne16/VelodyneScanUnified \
         /apollo/calibration/relative_odometry \
         </dev/null >"${LOG}" 2>&1 &
     fi

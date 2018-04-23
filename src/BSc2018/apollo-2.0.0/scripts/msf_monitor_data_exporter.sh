@@ -13,7 +13,7 @@ GNSS_LOC_TOPIC="/apollo/localization/msf_gnss"
 LIDAR_LOC_TOPIC="/apollo/localization/msf_lidar" 
 FUSION_LOC_TOPIC="/apollo/localization/pose"
 ODOMETRY_LOC_TOPIC="/apollo/sensor/gnss/odometry"
-CLOUD_TOPIC="/apollo/sensor/velodyne64/compensator/PointCloud2"
+CLOUD_TOPIC="/apollo/sensor/velodyne16/compensator/PointCloud2"
 
 GNSS_LOC_FILE="gnss_loc.txt"
 LIDAR_LOC_FILE="lidar_loc.txt"

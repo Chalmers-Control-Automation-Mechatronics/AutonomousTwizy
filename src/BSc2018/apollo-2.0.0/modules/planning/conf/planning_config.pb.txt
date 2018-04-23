@@ -59,8 +59,8 @@ em_planner_config {
         positive_jerk_coeff: 1.0
         negative_jerk_coeff: 1.0
 
-        max_acceleration: 3.0
-        max_deceleration: -4.0
+        max_acceleration: 0.35
+        max_deceleration: -2.0
 
         st_boundary_config {
             boundary_buffer: 0.1
@@ -70,7 +70,7 @@ em_planner_config {
             low_speed_threshold: 7.5
             minimal_kappa: 0.00001
             point_extension: 1.0
-            lowest_speed: 2.5
+            lowest_speed: 0.1
             num_points_to_avg_kappa: 2
             static_obs_nudge_speed_ratio: 0.6
             dynamic_obs_nudge_speed_ratio: 0.8
@@ -99,10 +99,10 @@ em_planner_config {
     qp_st_speed_config {
         total_path_length: 250.0
         total_time: 8.0
-        preferred_max_acceleration: 2.5
-        preferred_min_deceleration: -3.3
-        max_acceleration: 3.0
-        min_deceleration: -4.5
+        preferred_max_acceleration: 0.35
+        preferred_min_deceleration: -1
+        max_acceleration: 0.35
+        min_deceleration: -2.2
 
         qp_spline_config {
             number_of_discrete_graph_t: 4
@@ -138,7 +138,7 @@ em_planner_config {
             low_speed_threshold: 7.5
             minimal_kappa: 0.00001
             point_extension: 1.0
-            lowest_speed: 2.5
+            lowest_speed: 0.1
             num_points_to_avg_kappa: 2
             static_obs_nudge_speed_ratio: 0.6
             dynamic_obs_nudge_speed_ratio: 0.8
@@ -148,9 +148,9 @@ em_planner_config {
         total_path_length: 250.0
         total_time: 8.0
 
-        preferred_accel: 2.5
+        preferred_accel: 0.35
         preferred_decel: -3.3
-        max_accel: 2.5
+        max_accel: 0.35
         min_decel: -4.5
 
         speed_limit_buffer: 0.05
@@ -168,7 +168,7 @@ em_planner_config {
             low_speed_threshold: 4.5
             minimal_kappa: 0.00001
             point_extension: 1.0
-            lowest_speed: 2.5
+            lowest_speed: 0.1
             num_points_to_avg_kappa: 2
             static_obs_nudge_speed_ratio: 0.6
             dynamic_obs_nudge_speed_ratio: 0.8

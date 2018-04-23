@@ -67,7 +67,7 @@ function start() {
         /apollo/sensor/gnss/rtk_eph \
         /apollo/sensor/gnss/rtk_obs \
         /apollo/sensor/mobileye \
-        /apollo/sensor/velodyne64/compensator/PointCloud2 \
+        /apollo/sensor/velodyne16/compensator/PointCloud2 \
         /apollo/canbus/chassis \
         /apollo/canbus/chassis_detail \
         /apollo/control \

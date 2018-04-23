@@ -67,11 +67,11 @@ DEFINE_bool(enable_gps_timestamp, false,
 DEFINE_string(local_map_name, "local_map", "The path of localization map.");
 DEFINE_string(lidar_extrinsics_file,
               "modules/localization/msf/params/velodyne_params/"
-              "velodyne64_novatel_extrinsics_example.yaml",
+              "velodyne16_novatel_extrinsics_example.yaml",
               "Lidar extrinsics parameter file.");
 DEFINE_string(lidar_height_file,
               "modules/localization/msf/params/velodyne_params/"
-              "velodyne64_height.yaml",
+              "velodyne16_height.yaml",
               "Velodyne extrinsic path for the vehicle in use, "
               "where <ros> is the placeholder of ROS root.");
 DEFINE_double(lidar_height_default, 1.80,

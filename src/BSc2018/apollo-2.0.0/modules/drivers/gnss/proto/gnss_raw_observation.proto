@@ -141,7 +141,7 @@ message KepplerOrbit
     optional uint32 accuracy = 35;          //user range accuracy
     optional uint32 health = 36;            //satellite health: 0=good,1=bad
     optional double tgd = 37;               //grup delay (s)
-    optional double iodc = 38;              //Issue Of Data, Clock 
+    optional double iodc = 38;              //Issue Of Data, Clock
 }
 
 //This message defines orbit parameters of GLONASS
@@ -161,7 +161,7 @@ message GlonassOrbit
     optional double second_s = 10;
     //unit in meter
     optional int32 frequency_no = 11;
-    //GNSS week number    
+    //GNSS week number
     optional uint32 week_num = 12;
     //GNSS week second in seconds
     optional double week_second_s = 13;
@@ -173,7 +173,7 @@ message GlonassOrbit
     optional double clock_drift = 16;
     //Satellite health : 0=good,1=bad
     optional uint32 health = 17;
-    //unit in meter 
+    //unit in meter
     optional double position_x = 18;
     optional double position_y = 19;
     optional double position_z = 20;

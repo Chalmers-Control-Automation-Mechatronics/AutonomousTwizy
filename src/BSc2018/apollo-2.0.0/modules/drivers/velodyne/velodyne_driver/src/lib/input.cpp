@@ -22,6 +22,19 @@ namespace velodyne {
 
 bool Input::exract_nmea_time_from_packet(const NMEATimePtr& nmea_time,
                                          const uint8_t* bytes) {
+//Emil & Daniel
+//Hårdkodat NMEA då LIDARen inte har detta just nu
+/*
+  nmea_time->year = 18;
+  nmea_time->mon = 3;
+  nmea_time->day = 13;
+  nmea_time->hour = 12;
+  nmea_time->min = 50;
+  nmea_time->sec = 40;
+
+  return true;
+*/
+//
   int gprmc_index = 206;
 
   int field_count = 0;

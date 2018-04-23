@@ -3,7 +3,7 @@ header:
   stamp:
     secs: 1504071530
     nsecs: 0
-  frame_id: novatel
+  frame_id: sbp
 transform:
   rotation:
     x: 0.02586839453030634
@@ -14,4 +14,4 @@ transform:
     x: 0.001596842549225523
     y: 1.586873016593748
     z: 1
-child_frame_id: velodyne64
+child_frame_id: velodyne16

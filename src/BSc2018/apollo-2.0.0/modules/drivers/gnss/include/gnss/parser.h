@@ -54,6 +54,9 @@ class Parser {
   // Return a pointer to a NovAtel parser. The caller should take ownership.
   static Parser *create_novatel();
 
+  // Return a pointer to a SBP parser. The caller should take ownership.
+  static Parser *create_sbp();
+
   // Return a pointer to rtcm v3 parser. The caller should take ownership.
   static Parser *create_rtcm_v3(bool is_base_station = false);
 

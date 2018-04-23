@@ -1,8 +1,8 @@
 <launch>
-  <arg name="topic_pointcloud" default="/apollo/sensor/velodyne64/PointCloud2"/>
-  <arg name="topic_compensated_pointcloud" default="/apollo/sensor/velodyne64/compensator/PointCloud2"/>
+  <arg name="topic_pointcloud" default="/apollo/sensor/velodyne16/PointCloud2"/>
+  <arg name="topic_compensated_pointcloud" default="/apollo/sensor/velodyne16/compensator/PointCloud2"/>
   <arg name="node_name" default="compensator_nodelet"/>
-  <arg name="child_frame_id" default="velodyne64"/>
+  <arg name="child_frame_id" default="velodyne16"/>
   <arg name="tf_query_timeout" default="0.1"/>
   <node pkg="nodelet" type="nodelet" name="$(arg node_name)"
         args="load velodyne_pointcloud/CompensatorNodelet velodyne_nodelet_manager" output="screen">

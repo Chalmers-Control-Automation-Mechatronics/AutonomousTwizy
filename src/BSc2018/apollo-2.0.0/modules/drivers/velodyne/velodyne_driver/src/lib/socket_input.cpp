@@ -74,8 +74,11 @@ void SocketInput::init(int &port) {
   memset(&my_addr, 0, sizeof(my_addr));      // initialize to zeros
   my_addr.sin_family = AF_INET;              // host byte order
   my_addr.sin_port = htons(uint16_t(port));  // short, in network byte order
-  my_addr.sin_addr.s_addr = INADDR_ANY;      // automatically fill in my IP
-  //    my_addr.sin_addr.s_addr = inet_addr("192.168.1.100");
+
+//Ändringar av Daniel
+//Hårdkoda IP-addressen till LIDARen
+//  my_addr.sin_addr.s_addr = INADDR_ANY;      // automatically fill in my IP
+  my_addr.sin_addr.s_addr = inet_addr("192.168.0.2");
 
   if (bind(sockfd_, (sockaddr *)&my_addr, sizeof(sockaddr)) == -1) {
     ROS_ERROR_STREAM("Socket bind failed! Port " << port_);

@@ -34,7 +34,7 @@ int main(int argc, char **argv) {
                               "provide the output folder")(
       "cloud_topic",
       boost::program_options::value<std::string>()->default_value(
-          "/apollo/sensor/velodyne64/compensator/PointCloud2"),
+          "/apollo/sensor/velodyne16/compensator/PointCloud2"),
       "provide point cloud2 topic")(
       "gnss_loc_topic",
       boost::program_options::value<std::string>()->default_value(

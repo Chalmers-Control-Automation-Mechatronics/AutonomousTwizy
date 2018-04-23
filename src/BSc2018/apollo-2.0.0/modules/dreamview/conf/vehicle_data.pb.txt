@@ -7,8 +7,8 @@ data_files {
   dest_path: "modules/control/conf/lincoln.pb.txt"
 }
 data_files {
-  source_path: "start_velodyne.launch"
-  dest_path: "<ros>/share/velodyne/launch/start_velodyne.launch"
+  source_path: "start_velodyne_16.launch"
+  dest_path: "<ros>/share/velodyne/launch/start_velodyne_16.launch"
 }
 data_files {
   source_path: "velodyne_check.launch"
