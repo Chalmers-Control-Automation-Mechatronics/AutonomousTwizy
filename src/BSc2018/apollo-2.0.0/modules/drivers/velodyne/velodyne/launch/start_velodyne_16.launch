@@ -5,7 +5,7 @@
     <arg name="organized" default="false"/>
     <arg name="min_range" default="0.9" />
     <arg name="max_range_16" default="70.0" />
-    <arg name="rpm" default="600"/>
+    <arg name="rpm" default="300"/>
     <arg name="model" default="VLP16" />
     <!-- 100ms -->
     <arg name="tf_query_timeout" default="0.1"/>
@@ -19,9 +19,9 @@
     <arg name="model" value="$(arg model)"/>
     <arg name="rpm" value="$(arg rpm)"/>
     <arg name="frame_id" value="$(arg velodyne16_frame_id)"/>
-    <arg name="topic" value="/apollo/sensor/velodyne16/VelodyneScanUnified"/>    
+    <arg name="topic" value="/apollo/sensor/velodyne16/VelodyneScanUnified"/>
   </include>
-  
+
   <!-- start cloud nodelet using test calibration file -->
   <include file="$(find velodyne_pointcloud)/launch/convert_nodelet.launch">
     <arg name="node_name" value="sensor_velodyne16_convert"/>
@@ -33,7 +33,7 @@
     <arg name="topic_pointcloud" default="/apollo/sensor/velodyne16/PointCloud2"/>
     <arg name="topic_packets" default="/apollo/sensor/velodyne16/VelodyneScanUnified"/>
   </include>
-  
+
    <!-- start 16 compensator nodelet -->
   <include file="$(find velodyne_pointcloud)/launch/compensator_nodelet.launch">
     <arg name="node_name" value="sensor_velodyne16_compensator"/>
@@ -43,6 +43,9 @@
     <arg name="topic_compensated_pointcloud" value="/apollo/sensor/velodyne16/compensator/PointCloud2"/>
   </include>
 
-  <node pkg="velodyne_pointcloud" type="extrinsics_broadcaster.py"
-    args="$(arg extrinsics_velodyne16)" name="static_transform_velodyne16" />
+  <node
+    pkg="velodyne_pointcloud"
+    type="extrinsics_broadcaster.py"
+    args="$(arg extrinsics_velodyne16)"
+    name="static_transform_velodyne16" />
 </launch>

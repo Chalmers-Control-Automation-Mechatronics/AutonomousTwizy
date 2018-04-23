@@ -37,8 +37,8 @@ def main():
 
     file_path = open(sys.argv[1])
     transform_stamped = yaml.safe_load(file_path)
-    command = 'rosrun tf2_ros static_transform_publisher '\
-        '%f %f %f %f %f %f %f %s %s' % (transform_stamped['transform']['translation']['x'],
+    command = 'rosrun tf static_transform_publisher '\
+        '%f %f %f %f %f %f %f %s %s 100' % (transform_stamped['transform']['translation']['x'],
                                         transform_stamped['transform']['translation']['y'],
                                         transform_stamped['transform']['translation']['z'],
                                         transform_stamped['transform']['rotation']['x'],
