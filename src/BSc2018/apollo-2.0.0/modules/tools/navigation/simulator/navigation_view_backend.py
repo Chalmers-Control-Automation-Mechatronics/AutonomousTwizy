@@ -45,7 +45,7 @@ routing_pub = None
 mobileye_pb = None
 planning_pb = None
 heading = None
-projector = pyproj.Proj(proj='utm', zone=10, ellps='WGS84')
+projector = pyproj.Proj(proj='utm', zone=32, ellps='WGS84')
 
 
 def mobileye_callback(p_mobileye_pb):
@@ -63,7 +63,7 @@ def localization_callback(localization_pb):
     x = localization_pb.pose.position.x
     y = localization_pb.pose.position.y
     heading = localization_pb.pose.heading
-    zone = 10
+    zone = 32
     lat, lon = utm_to_latlng(zone, x, y)
 
 
