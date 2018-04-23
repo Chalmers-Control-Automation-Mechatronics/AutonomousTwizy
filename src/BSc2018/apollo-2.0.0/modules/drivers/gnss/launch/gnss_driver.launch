@@ -1,6 +1,6 @@
 <launch>
     <arg name="gnss_conf" default="$(find gnss_driver)/conf/gnss_conf_mkz_net.txt" />
-    <arg name="proj4_text" default="+proj=utm +zone=10 +ellps=WGS84 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs " />
+    <arg name="proj4_text" default="+proj=utm +zone=32 +ellps=WGS84 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs " />
     <arg name="topic_odometry" default="/apollo/sensor/gnss/odometry" />
     <arg name="frame_id" default="world" />
     <arg name="child_frame_id" default="sbp" />
