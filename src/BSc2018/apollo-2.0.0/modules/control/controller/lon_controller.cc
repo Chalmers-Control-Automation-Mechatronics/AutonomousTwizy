@@ -283,6 +283,7 @@ Status LonController::ComputeControlCommand(
 
   cmd->set_throttle(throttle_cmd);
   cmd->set_brake(brake_cmd);
+  cmd->set_acceleration(acceleration_cmd);
 
   if (std::abs(VehicleStateProvider::instance()->linear_velocity()) <=
           FLAGS_max_abs_speed_when_stopped ||
