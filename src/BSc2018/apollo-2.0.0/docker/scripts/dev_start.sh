@@ -81,7 +81,8 @@ if [ -z "${DOCKER_REPO}" ]; then
     DOCKER_REPO=apolloauto/apollo
 fi
 
-IMG=${DOCKER_REPO}:$VERSION
+#IMG=${DOCKER_REPO}:$VERSION
+IMG="twizy/apollo"
 APOLLO_ROOT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/../.." && pwd )"
 
 if [ ! -e /apollo ]; then
