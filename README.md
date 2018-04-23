@@ -12,5 +12,5 @@ When you have done changes that are working and you want to share them with the 
 https://help.github.com/articles/merging-an-upstream-repository-into-your-fork/
 
 ### Git structure
-* The master branch in https://github.com/Chalmers-Control-Automation-Mechatronics/AutonomousTwizy is intended to be where all the changes to Apollo for the Twizy project takes place.
-* The upstream branch contains original unmodified Apollo code from https://github.com/ApolloAuto/apollo. Update Apollo by switching to upstream branch and upload the source code for Apollo. Then switch to master branch and merge these changes into master using `git merge upstream`.
+* The *master* branch in https://github.com/Chalmers-Control-Automation-Mechatronics/AutonomousTwizy is intended to be where all the changes to Apollo for the Twizy project takes place.
+* The *original* branch contains unchanged Apollo code. Read the `Update Apollo.md` guide on how to update Apollo.
