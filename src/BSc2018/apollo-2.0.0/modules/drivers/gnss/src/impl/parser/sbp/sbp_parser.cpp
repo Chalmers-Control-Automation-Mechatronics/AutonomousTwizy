@@ -103,7 +103,7 @@ static sbp_msg_callbacks_node_t eph_glo_callback_node;
 // Constants and globals for Kalman Filter
 double xStateVector[8] = {0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0};
 double pCovVector[64];
-const int UTM_ZONE = 33;
+const int UTM_ZONE = 32;
 bool initPosSet = false;
 
 // Converts a SBP Fixmode to a Novatel Position/Velocity type
@@ -277,7 +277,7 @@ void utc_time_callback(u16 sender_id, u8 len, u8 msg[], void *context){
 		return;
 	lasttime = data->tow;
 
-	ROS_WARN_STREAM("UTC TOW: " << data->tow << " NS: " << data->ns);
+	//ROS_WARN_STREAM("UTC TOW: " << data->tow << " NS: " << data->ns);
 }
 
 double lat;
@@ -487,16 +487,16 @@ void update_kalman_gps(msg_pos_llh_t* data) {
 					0.0, (data->h_accuracy/1000.0)*(data->h_accuracy/1000.0), 0.0,
 					0.0, 0.0, (data->v_accuracy/1000.0)*(data->v_accuracy/1000.0)};
 
-	ROS_WARN_STREAM("h_accuracy: " << Rp[0] << "      h_accuracy: " << Rp[8]);
+	//ROS_WARN_STREAM("h_accuracy: " << Rp[0] << "      h_accuracy: " << Rp[8]);
 
 
 	// Covert to UTM
 	double x, y;
 	ll2utm_c_initialize();
-	ll2utm_c(lat, lon, 33, &x, &y);
+	ll2utm_c(lat, lon, UTM_ZONE, &x, &y);
 	ll2utm_c_terminate();
 
-	if(!initPosSet) {
+	if(!initPosSet || xStateVector[3]>5 || xStateVector[3] < - 5)  {
 
 		xStateVector[0] = x;
 		xStateVector[1] = y;
@@ -506,7 +506,6 @@ void update_kalman_gps(msg_pos_llh_t* data) {
 		initPosSet = true;
 
 		ROS_WARN_STREAM("GNSS pos init: DONE");
-
 
 		return;
 	}
@@ -558,13 +557,13 @@ bool imu_ins(msg_imu_raw_t* data){
 	// Do the Kalman dance
 
 	// Switched x and y aacording to IMU orientation.
-	double Ra[9] = {0, (1.0e-5)*0.0802, 0,
-					(1.0e-5)*0.0654, 0, 0,
-					0, 0, (1.0e-5)*0.1236};
+	double Ra[9] = {(1.0e-5)*0.0802, 0,0,
+			0,(1.0e-5)*0.0654, 0,
+			0, 0, (1.0e-5)*0.1236};
 
-	double Rw[9] = {0, (1.0e-6)*0.4305, 0,
-					(1.0e-6)*0.3410, 0, 0,
-					0, 0, (1.0e-6)*0.3449};
+	double Rw[9] = {(1.0e-6)*0.4305, 0, 0,
+			0, (1.0e-6)*0.3410, 0,
+			0, 0, (1.0e-6)*0.3449};
 
 
 	// Cordinate transformation accoriding to IMU orientation in car.
@@ -576,9 +575,9 @@ bool imu_ins(msg_imu_raw_t* data){
 	gyr[2] = -1 * (double)data->gyr_z * RT_PI/180.0/32.8;
 
 	double acc[3];
-	acc[0] = -1 * (double)data->acc_y / 4096.0*9.8;
-	acc[1] = -1 * (double)data->acc_x / 4096.0*9.8;
-	acc[2] = -1 * (double)data->acc_z / 4096.0*9.8;
+	acc[0] = -1 * (double)data->acc_y / 4096.0*9.82;
+	acc[1] = -1 * (double)data->acc_x / 4096.0*9.82;
+	acc[2] = -1 * (double)data->acc_z / 4096.0*9.82;
 
 	messure_update_initialize();
 
@@ -605,7 +604,8 @@ bool imu_ins(msg_imu_raw_t* data){
 	q2e(quaternion, euler);
 	q2e_terminate();
 
-
+	//ROS_WARN_STREAM("lat: " << latitude << " lon: " << longitude);
+	//ROS_WARN_STREAM("x[0]: " << xStateVector[0] << " x[1]: " << xStateVector[0]);
 
 	_ins.mutable_position()->set_lat(latitude);
 	_ins.mutable_position()->set_lon(longitude);
@@ -652,12 +652,13 @@ bool imu_ins(msg_imu_raw_t* data){
 	_ins.set_position_covariance(8, pCovVector[18]);
 
 	// Euler angles cov
-	double eulCov[3];
+	double eulCov[9];
 	P2EulerCov_initialize();
 	P2EulerCov(pCovVector, quaternion, eulCov);
 	P2EulerCov_terminate();
 	//quatCov[0] = pCovVector[ ]
-	for(int i = 0; i<9; i++){
+
+	for(int i = 0; i < 9; i++){
 		_ins.set_euler_angles_covariance(i, eulCov[i]);
 	}
 
@@ -677,9 +678,11 @@ bool imu_ins(msg_imu_raw_t* data){
 		_ins.set_type(apollo::drivers::gnss::Ins::GOOD);
 	}
 
+	//_ins.set_type(apollo::drivers::gnss::Ins::GOOD);
 
-	//ROS_WARN_STREAM("Euler: " << " Z:" << euler[0] << " Y:" << euler[1] << " X:" << euler[2]);
-	//ROS_WARN_STREAM("Pos: " << " lon: " << longitude << ", lat: " << latitude << ", height: " << xStateVector[2] << "vel: " << xStateVector[3]);
+
+	ROS_WARN_STREAM("Euler: " << " Z:" << euler[0] << " Y:" << euler[1] << " X:" << euler[2]);
+	ROS_WARN_STREAM("Pos: " << " lon: " << longitude << ", lat: " << latitude << ", height: " << xStateVector[2] << "vel: " << xStateVector[3]);
 
 
 	return true;
@@ -690,7 +693,8 @@ void imu_raw_callback(u16 sender_id, u8 len, u8 msg[], void *context){
 
 	msg_imu_raw_t* data = (msg_imu_raw_t*) msg;
 
-	//ROS_WARN_STREAM("IMU TOW: " << data->tow << " TOWFrac: " << data->tow_f);
+	///ROS_WARN_STREAM("IMU TOW: " << data->tow << " TOWFrac: " << data->tow_f);
+
 	if(imu_imu_raw(data)){
 		current_message = Parser::MessageType::IMU;
 		return;
